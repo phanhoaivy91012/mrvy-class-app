@@ -13,7 +13,6 @@ const SECRET_KEY = process.env.SECRET_KEY || "MRVY_SECRET_2026_@!";
 const HASH_SALT = process.env.HASH_SALT || "MRVY_SALT_2026_#$";
 const GAS_DRIVE_WEBHOOK_URL = process.env.GAS_DRIVE_WEBHOOK_URL || "";
 
-// ================= HỆ THỐNG BẢO MẬT (GIỮ NGUYÊN LOGIC CŨ) =================
 function hashPassword(pass) {
   if (!pass && pass !== 0) return '';
   return crypto.createHash('sha256').update(String(pass).trim() + HASH_SALT, 'utf8').digest('hex');
@@ -63,7 +62,6 @@ function getVNDateString() {
   return `${dd}/${mm}/${yyyy} ${hh}:${min}`;
 }
 
-// ================= CÁC HÀM XỬ LÝ CHÍNH =================
 export async function getPublicAppConfig() {
   const defaultCfg = { logoUrl: '', brandTitle: 'MR Vy', brandSub: 'Hệ thống quản lý', headerSlogan: '10A14 - Đoàn Kết - Học Tốt' };
   try {
@@ -266,7 +264,6 @@ export async function createTaskWithFile(formObj, fileData, authToken) {
   try {
     enforceRole(authToken, 'MANAGER');
     let fileUrl = '';
-    // Đẩy file qua Google Drive Folder thông qua Webhook GAS của bạn
     if (fileData && fileData.base64 && GAS_DRIVE_WEBHOOK_URL) {
       const driveRes = await fetch(GAS_DRIVE_WEBHOOK_URL, {
         method: 'POST',
@@ -470,3 +467,6 @@ export async function deleteBonusPoint(id, authToken) {
   try {
     enforceRole(authToken, 'HOC_TAP');
     await supabase.from('diem_cong').delete().eq('id', String(id));
+    return { success: true };
+  } catch (e) { return { success: false, message: e.message }; }
+}
