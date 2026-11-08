@@ -1,6 +1,12 @@
 export const metadata = {
   title: 'MR Vy - Hệ Thống Quản Lý',
-  viewport: 'width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no',
+};
+
+export const viewport = {
+  width: 'device-width',
+  initialScale: 1,
+  maximumScale: 1,
+  userScalable: false,
 };
 
 export default function RootLayout({ children }) {
@@ -12,7 +18,7 @@ export default function RootLayout({ children }) {
           rel="stylesheet"
           href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.4.0/css/all.min.css"
         />
-        <style>{`
+        <style dangerouslySetInnerHTML={{ __html: `
           @keyframes redPulse {
             0%, 100% { border-color: #ef4444; box-shadow: 0 0 12px rgba(239, 68, 68, 0.4); background-color: #fff5f5; }
             50% { border-color: #fca5a5; box-shadow: 0 0 0 transparent; background-color: #ffffff; }
@@ -43,7 +49,7 @@ export default function RootLayout({ children }) {
           }
           ::-webkit-scrollbar { width: 5px; height: 5px; }
           ::-webkit-scrollbar-thumb { background: #cbd5e1; border-radius: 4px; }
-        `}</style>
+        `}} />
       </head>
       <body className="bg-[#f1f5f9] font-sans text-slate-800 antialiased">
         {children}
