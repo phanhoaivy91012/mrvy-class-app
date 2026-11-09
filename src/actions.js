@@ -1,6 +1,7 @@
 'use server';
 
 import crypto from 'crypto';
+import nodemailer from 'nodemailer';
 import { createClient } from '@supabase/supabase-js';
 
 const supabase = createClient(
@@ -146,7 +147,7 @@ export async function getInitialData(authToken) {
   if (!role) {
     return {
       students: [], tasks: [], bonusPoints: [], violations: [], funds: [],
-      tkbData: { grid: [], notes: { truong: [], nha: [] } }, appConfig
+      tkbData: { grid: [], notes: { truong: [], nha: [] } }, appConfig, adminEmail: ''
     };
   }
 
@@ -160,6 +161,9 @@ export async function getInitialData(authToken) {
     supabase.from('tkb').select('*')
   ]);
 
+  const adminRow = (uRes.data || []).find(u => String(u.role || '').toLowerCase() === 'admin');
+  const adminEmail = isAdminUser ? (adminRow?.email || process.env.GMAIL_USER || '') : '';
+
   const students = (uRes.data || [])
     .filter(u => u.username && String(u.role || '').toLowerCase() !== 'admin')
     .map(u => ({
@@ -170,7 +174,8 @@ export async function getInitialData(authToken) {
       gioiTinh: u.gioi_tinh || '',
       ngaySinh: isAdminUser ? (u.ngay_sinh || '') : '',
       soHS: isAdminUser ? (u.so_hs || '') : '',
-      soPH: isAdminUser ? (u.so_ph || '') : ''
+      soPH: isAdminUser ? (u.so_ph || '') : '',
+      email: isAdminUser ? (u.email || '') : ''
     }));
 
   const tasks = (tRes.data || []).map(t => {
@@ -213,7 +218,7 @@ export async function getInitialData(authToken) {
     if (r.key === 'NOTES_DATA') tkbData.notes = r.data_json || { truong: [], nha: [] };
   });
 
-  return { students, tasks, bonusPoints, violations, funds, tkbData, appConfig };
+  return { students, tasks, bonusPoints, violations, funds, tkbData, appConfig, adminEmail };
 }
 
 export async function updateStudentAccount(studentObj, authToken) {
@@ -225,7 +230,8 @@ export async function updateStudentAccount(studentObj, authToken) {
       gioi_tinh: String(studentObj.gioiTinh || ''),
       ngay_sinh: String(studentObj.ngaySinh || ''),
       so_hs: String(studentObj.soHS || ''),
-      so_ph: String(studentObj.soPH || '')
+      so_ph: String(studentObj.soPH || ''),
+      email: String(studentObj.email || '').trim()
     };
     if (studentObj.password && studentObj.password !== '••••••') {
       updatePayload.password = hashPassword(studentObj.password);
@@ -245,6 +251,9 @@ export async function saveAppConfig(configObj, authToken) {
       { key: 'brandSub', value: configObj.brandSub || 'Hệ thống quản lý' },
       { key: 'headerSlogan', value: configObj.headerSlogan || '10A14 - Đoàn Kết - Học Tốt' }
     ]);
+    if (configObj.adminEmail !== undefined) {
+      await supabase.from('users').update({ email: String(configObj.adminEmail).trim() }).ilike('role', 'admin');
+    }
     return { success: true };
   } catch (e) { return { success: false, message: e.message }; }
 }
@@ -294,7 +303,74 @@ export async function createTaskWithFile(formObj, fileData, authToken) {
       danh_sach_hs: formObj.assignees || [],
       ngay_tao: getVNDateString()
     });
-    return { success: true };
+
+    let emailSentCount = 0;
+    const gmailUser = process.env.GMAIL_USER;
+    const gmailPass = process.env.GMAIL_APP_PASSWORD;
+
+    if (gmailUser && gmailPass && formObj.assignees && formObj.assignees.length > 0) {
+      const { data: allUsers } = await supabase.from('users').select('username, role, email');
+      const totalClassStudents = (allUsers || []).filter(u => String(u.role || '').toLowerCase() !== 'admin').length;
+
+      const assignedIds = formObj.assignees.map(a => String(a.maHS).trim().toLowerCase());
+      const recipientEmails = (allUsers || [])
+        .filter(u => assignedIds.includes(String(u.username).trim().toLowerCase()) && u.email && String(u.email).includes('@'))
+        .map(u => String(u.email).trim());
+
+      const adminRow = (allUsers || []).find(u => String(u.role || '').toLowerCase() === 'admin');
+      const teacherEmail = (adminRow?.email && adminRow.email.includes('@')) ? adminRow.email.trim() : gmailUser;
+
+      const isWholeClass = formObj.assignees.length >= totalClassStudents && totalClassStudents > 0;
+      const scopeLabel = isWholeClass
+        ? `Thông báo chung cho cả lớp (${formObj.assignees.length} học sinh)`
+        : `Nhiệm vụ giao riêng (${formObj.assignees.length} học sinh được chọn)`;
+
+      if (recipientEmails.length > 0) {
+        const transporter = nodemailer.createTransport({
+          service: 'gmail',
+          auth: { user: gmailUser, pass: gmailPass }
+        });
+
+        const htmlContent = `
+          <div style="font-family: Arial, sans-serif; max-width: 600px; margin: 0 auto; border: 1px solid #cbd5e1; border-radius: 16px; overflow: hidden;">
+            <div style="background-color: #0a192f; color: #ffffff; padding: 18px 24px;">
+              <h2 style="margin: 0; font-size: 18px; color: #34d399;">🔔 THÔNG BÁO NHIỆM VỤ MỚI</h2>
+              <p style="margin: 4px 0 0; font-size: 12px; color: #94a3b8;">${scopeLabel}</p>
+            </div>
+            <div style="padding: 20px 24px; color: #1e293b; font-size: 14px; line-height: 1.6;">
+              <p style="margin-top: 0;">Chào em, hệ thống quản lý lớp học vừa có thông báo công việc mới dành cho em:</p>
+              <div style="background-color: #f8fafc; border-left: 4px solid #059669; padding: 14px 16px; margin: 16px 0; border-radius: 6px;">
+                <div style="font-weight: bold; font-size: 16px; color: #0f172a; margin-bottom: 8px;">📌 ${formObj.tieuDe}</div>
+                <div style="white-space: pre-line; color: #334155; margin-bottom: 10px;">${formObj.noiDung || 'Không có mô tả chi tiết.'}</div>
+                <div style="font-size: 12px; color: #dc2626; font-weight: bold;">⏰ Hạn chót: ${formObj.hanChot || 'Không thời hạn'}</div>
+                <div style="font-size: 12px; color: #475569; margin-top: 4px;">👤 Người đăng: <b>${formObj.nguoiGiao}</b></div>
+              </div>
+              ${formObj.link ? `<p>🔗 <b>Link đính kèm:</b> <a href="${formObj.link}" target="_blank">${formObj.link}</a></p>` : ''}
+              ${fileUrl ? `<p>📎 <b>File đính kèm:</b> <a href="${fileUrl}" target="_blank">Nhấn vào đây để mở file trên Google Drive</a></p>` : ''}
+              <p style="margin-top: 20px;">Vui lòng đăng nhập vào hệ thống lớp học để xem và bấm <b>"Xác nhận xong"</b> khi hoàn thành:</p>
+              <p style="margin-top: 12px;">
+                <a href="https://mrvy-class.vercel.app" style="display: inline-block; background-color: #059669; color: #ffffff; text-decoration: none; font-weight: bold; padding: 10px 22px; border-radius: 10px;">
+                  Mở Hệ Thống Lớp Học
+                </a>
+              </p>
+            </div>
+          </div>
+        `;
+
+        const mailOptions = {
+          from: `"MR Vy - Quản Lý Lớp" <${gmailUser}>`,
+          to: recipientEmails.length === 1 ? recipientEmails[0] : teacherEmail,
+          bcc: recipientEmails.length === 1 ? [teacherEmail] : recipientEmails,
+          subject: `[Thông báo lớp] ${formObj.tieuDe}`,
+          html: htmlContent
+        };
+
+        await transporter.sendMail(mailOptions);
+        emailSentCount = recipientEmails.length;
+      }
+    }
+
+    return { success: true, emailSentCount };
   } catch (err) { return { success: false, message: err.message }; }
 }
 
