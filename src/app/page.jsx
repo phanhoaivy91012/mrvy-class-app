@@ -168,6 +168,10 @@ const RAW_BODY_HTML = `
                 <label class="block font-bold text-slate-700 uppercase mb-1"><i class="fa-solid fa-bullhorn mr-1"></i> Dòng Tiêu Đề Khẩu Hiệu Giữa Header</label>
                 <input type="text" id="cfgHeaderSlogan" class="w-full p-2.5 border rounded-xl bg-white outline-none font-bold text-sm text-yellow-700" placeholder="VD: 10A4 - Đoàn Kết - Học Tốt">
               </div>
+              <div class="md:col-span-2 space-y-1 bg-emerald-50/60 p-4 rounded-2xl border border-emerald-200">
+                <label class="block font-bold text-emerald-800 uppercase mb-1"><i class="fa-solid fa-envelope mr-1"></i> Email Giáo Viên (Admin nhận thông báo)</label>
+                <input type="email" id="cfgAdminEmail" class="w-full p-2.5 border rounded-xl bg-white outline-none font-mono font-bold text-sm text-emerald-700" placeholder="VD: vyphan@gmail.com">
+              </div>
             </div>
           </div>
 
@@ -196,6 +200,7 @@ const RAW_BODY_HTML = `
                     <th class="p-3 text-center">Ngày Sinh</th>
                     <th class="p-3 text-center">Số HS</th>
                     <th class="p-3 text-center">Số PH</th>
+                    <th class="p-3">Email Học Sinh</th>
                     <th class="p-3 text-center">Chức Vụ</th>
                     <th class="p-3 text-center w-24">Thao Tác</th>
                   </tr>
@@ -918,6 +923,10 @@ const RAW_BODY_HTML = `
           </div>
         </div>
         <div>
+          <label class="block font-bold text-slate-600 uppercase mb-1">Email Học Sinh (Nhận thông báo)</label>
+          <input type="email" id="edStudentEmail" class="w-full p-2.5 border rounded-xl outline-none font-mono" placeholder="hocsinh@gmail.com">
+        </div>
+        <div>
           <label class="block font-bold text-slate-600 uppercase mb-1">Phân Quyền / Chức Vụ</label>
           <select id="edStudentRole" class="w-full p-2.5 border rounded-xl outline-none font-bold text-blue-700 bg-blue-50">
             <option value="STUDENT">Học sinh thông thường (STUDENT)</option>
@@ -1257,6 +1266,8 @@ export default function FullAppPage() {
       window.google.script.run.withSuccessHandler(data => {
         appData = data;
         window.applyAppConfig(data.appConfig);
+        const elAdmMail = document.getElementById('cfgAdminEmail');
+        if (elAdmMail) elAdmMail.value = data.adminEmail || '';
         window.renderStudentsForModal();
         window.renderTasks();
         window.renderTKBTable();
@@ -1334,7 +1345,8 @@ export default function FullAppPage() {
       let logoUrl = document.getElementById('cfgLogoUrl').value.trim();
       if (currentLogoBase64) logoUrl = currentLogoBase64;
 
-      const configObj = { brandTitle: title, brandSub: sub, headerSlogan: slogan, logoUrl: logoUrl };
+      const adminEmail = document.getElementById('cfgAdminEmail') ? document.getElementById('cfgAdminEmail').value.trim() : '';
+      const configObj = { brandTitle: title, brandSub: sub, headerSlogan: slogan, logoUrl: logoUrl, adminEmail: adminEmail };
       const btn = document.getElementById('btnSaveBrand');
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu...';
       btn.disabled = true;
@@ -1360,6 +1372,7 @@ export default function FullAppPage() {
           <td class="p-3 text-center font-medium text-slate-600">${s.ngaySinh || '---'}</td>
           <td class="p-3 text-center font-mono font-semibold text-blue-600">${s.soHS || '---'}</td>
           <td class="p-3 text-center font-mono font-semibold text-emerald-600">${s.soPH || '---'}</td>
+          <td class="p-3 font-mono text-slate-600">${s.email || '---'}</td>
           <td class="p-3 text-center"><span class="px-2.5 py-1 rounded-xl text-xs font-extrabold ${s.role === 'STUDENT' ? 'bg-slate-100 text-slate-600' : 'bg-emerald-100 text-emerald-800'}">${s.role}</span></td>
           <td class="p-3 text-center">
             <button onclick="openEditStudentModal('${s.maHS}')" class="px-3 py-1.5 bg-blue-600 hover:bg-blue-700 text-white rounded-xl font-bold text-xs shadow transition">
@@ -1389,6 +1402,7 @@ export default function FullAppPage() {
       document.getElementById('edStudentNgaySinh').value = s.ngaySinh || '';
       document.getElementById('edStudentSoHS').value = s.soHS || '';
       document.getElementById('edStudentSoPH').value = s.soPH || '';
+      document.getElementById('edStudentEmail').value = s.email || '';
       document.getElementById('edStudentRole').value = s.role || 'STUDENT';
       document.getElementById('editStudentModal').classList.remove('hidden');
     };
@@ -1406,6 +1420,7 @@ export default function FullAppPage() {
         ngaySinh: document.getElementById('edStudentNgaySinh').value.trim(),
         soHS: document.getElementById('edStudentSoHS').value.trim(),
         soPH: document.getElementById('edStudentSoPH').value.trim(),
+        email: document.getElementById('edStudentEmail').value.trim(),
         role: document.getElementById('edStudentRole').value
       };
 
@@ -1722,6 +1737,9 @@ export default function FullAppPage() {
         document.getElementById('btnSubmitTask').innerText = 'Giao việc';
         document.getElementById('btnSubmitTask').disabled = false;
         if (res.success) {
+          if (res.emailSentCount > 0) {
+            alert(`Đã giao việc và gửi email thông báo thành công cho ${res.emailSentCount} học sinh!`);
+          }
           window.closeTaskModal();
           document.getElementById('taskTitle').value = '';
           document.getElementById('taskDesc').value = '';
