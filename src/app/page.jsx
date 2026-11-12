@@ -1378,6 +1378,39 @@ export default function FullAppPage() {
       });
     };
 
+    window.renderAllViews = function(data) {
+      if (!data) return;
+      // Giữ lại ảnh nền đăng nhập cũ nếu gói tải nhanh đã lược bỏ loginBgUrl
+      const oldLoginBg = appData?.appConfig?.loginBgUrl || '';
+      appData = data;
+      if (appData.appConfig && !appData.appConfig.loginBgUrl && oldLoginBg) {
+        appData.appConfig.loginBgUrl = oldLoginBg;
+      }
+      if (data.vpPresets && data.vpPresets.TRU && data.vpPresets.TRU.length > 0) {
+        VP_PRESETS = data.vpPresets;
+      }
+
+      // 1. Ưu tiên vẽ Thời Khóa Biểu và Ghi chú NGAY LẬP TỨC đầu tiên
+      window.renderTKBTable();
+      window.renderNotes();
+      window.applyAppConfig(appData.appConfig);
+
+      const elAdmMail = document.getElementById('cfgAdminEmail');
+      if (elAdmMail) elAdmMail.value = data.adminEmail || '';
+
+      // 2. Các bảng ở tab ẩn phía sau đẩy sang nhịp kế tiếp để không làm khựng màn hình TKB
+      setTimeout(() => {
+        window.renderStudentsForModal();
+        window.renderTasks();
+        window.renderBonusView();
+        window.renderViolationsView();
+        window.renderFunds();
+        window.renderStudentManagerTable();
+        window.renderLuckyStudentPool();
+        window.initSeatingGrid();
+      }, 10);
+    };
+
     window.loadData = function() {
       const today = new Date();
       const days = ['CN', 'T2', 'T3', 'T4', 'T5', 'T6', 'T7'];
@@ -1388,22 +1421,25 @@ export default function FullAppPage() {
       if (dtPC) dtPC.innerText = dateStr;
       if (dtMob) dtMob.innerText = dateStr;
 
+      // HIỂN THỊ TỨC THÌ (0.05 GIÂY): Nếu máy đã có bản lưu gần nhất, vẽ ngay lập tức không cần chờ mạng!
+      try {
+        const cachedStr = localStorage.getItem('mrvy_fastCache');
+        if (cachedStr && (!appData.tkbData || !appData.tkbData.grid || appData.tkbData.grid.length === 0)) {
+          const cachedData = JSON.parse(cachedStr);
+          if (cachedData && cachedData.tkbData) {
+            window.renderAllViews(cachedData);
+          }
+        }
+      } catch (e) {}
+
+      // Đồng bộ dữ liệu mới nhất từ Supabase ở chế độ nhẹ (không tải lại ảnh nền nặng)
       window.google.script.run.withSuccessHandler(data => {
-        appData = data;
-        window.applyAppConfig(data.appConfig);
-        const elAdmMail = document.getElementById('cfgAdminEmail');
-        if (elAdmMail) elAdmMail.value = data.adminEmail || '';
-        window.renderStudentsForModal();
-        window.renderTasks();
-        window.renderTKBTable();
-        window.renderNotes();
-        window.renderBonusView();
-        window.renderViolationsView();
-        window.renderFunds();
-        window.renderStudentManagerTable();
-        window.renderLuckyStudentPool();
-        window.initSeatingGrid();
-      }).getInitialData(getAuthToken());
+        if (!data) return;
+        window.renderAllViews(data);
+        try {
+          localStorage.setItem('mrvy_fastCache', JSON.stringify(data));
+        } catch (e) {}
+      }).getInitialData(getAuthToken(), false);
     };
 
    let currentLoginBgBase64 = '';
@@ -3930,27 +3966,26 @@ window.exportTKBAndNotesImages = async function() {
       }
     };
 
-    // 3. Khởi chạy tải cấu hình ban đầu & tự động khôi phục phiên đăng nhập
-    window.google.script.run.withSuccessHandler(cfg => {
-      if (cfg) window.applyAppConfig(cfg);
-    }).getPublicAppConfig();
-
-    window.google.script.run.withSuccessHandler(res => {
-      if (res && res.TRU && res.CONG && res.TRU.length > 0) {
-        VP_PRESETS = res;
-      }
-    }).getVpPresetsConfig();
-
+   // 3. Khởi chạy siêu tốc: Nếu đã đăng nhập thì vào thẳng và hiện TKB ngay lập tức (không gọi các hàm thừa gây nghẽn cổ chai)
+    let isRestored = false;
     try {
       const savedToken = localStorage.getItem('authToken');
       const savedUserStr = localStorage.getItem('savedUser');
       if (savedToken && savedUserStr) {
         const parsedUser = JSON.parse(savedUserStr);
         if (parsedUser && parsedUser.username) {
+          isRestored = true;
           window.applyLoggedInState(parsedUser, savedToken);
         }
       }
     } catch (e) {}
+
+    // Chỉ khi CHƯA đăng nhập (đang ở màn hình Login) mới cần tải ảnh nền Login
+    if (!isRestored) {
+      window.google.script.run.withSuccessHandler(cfg => {
+        if (cfg) window.applyAppConfig(cfg);
+      }).getPublicAppConfig();
+    }
   }, []);
 
   return <div dangerouslySetInnerHTML={{ __html: RAW_BODY_HTML }} />;
