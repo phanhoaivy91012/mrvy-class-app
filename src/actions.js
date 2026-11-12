@@ -184,10 +184,14 @@ export async function getInitialData(authToken) {
       const parts = String(t.ngay_tao).split('/');
       if (parts.length >= 2) taskMonth = String(parseInt(parts[1]));
     }
+    const rawList = Array.isArray(t.danh_sach_hs) ? t.danh_sach_hs : [];
+    const firstAssignee = rawList[0] || {};
     return {
       id: t.id, tieuDe: t.tieu_de, noiDung: t.noi_dung, link: t.link_dinh_kem,
       file: t.file_dinh_kem, nguoiGiao: t.nguoi_giao, hanChot: t.han_chot,
-      assignees: Array.isArray(t.danh_sach_hs) ? t.danh_sach_hs : [],
+      requireProof: !!firstAssignee.reqProof,
+      proofCode: firstAssignee.proofCode || '',
+      assignees: rawList,
       ngayTao: t.ngay_tao, thang: taskMonth
     };
   });
@@ -292,6 +296,15 @@ export async function createTaskWithFile(formObj, fileData, authToken) {
       }
     }
 
+   const reqProof = !!formObj.requireProof;
+    const pCode = String(formObj.proofCode || '').trim();
+    const assigneesWithMeta = (formObj.assignees || []).map(a => ({
+      ...a,
+      reqProof,
+      proofCode: pCode,
+      proofUrl: a.proofUrl || ''
+    }));
+
     await supabase.from('cong_viec').insert({
       id: 'CV_' + Date.now(),
       tieu_de: formObj.tieuDe,
@@ -300,7 +313,7 @@ export async function createTaskWithFile(formObj, fileData, authToken) {
       file_dinh_kem: fileUrl,
       nguoi_giao: formObj.nguoiGiao,
       han_chot: formObj.hanChot || 'Không thời hạn',
-      danh_sach_hs: formObj.assignees || [],
+      danh_sach_hs: assigneesWithMeta,
       ngay_tao: getVNDateString()
     });
 
@@ -374,15 +387,61 @@ export async function createTaskWithFile(formObj, fileData, authToken) {
   } catch (err) { return { success: false, message: err.message }; }
 }
 
-export async function toggleTaskStatus(taskId, username, isDone, authToken) {
+export async function toggleTaskStatus(taskId, username, isDone, authToken, proofFileData = null) {
   try {
     enforceRole(authToken, 'ANY');
     const { data: task } = await supabase.from('cong_viec').select('danh_sach_hs').eq('id', String(taskId)).single();
     if (!task) return { success: false, message: 'Không tìm thấy ID công việc' };
-    const assignees = (task.danh_sach_hs || []).map(a => {
-      if (String(a.maHS).toLowerCase() === String(username).toLowerCase()) return { ...a, done: isDone };
+
+    const rawList = task.danh_sach_hs || [];
+    const reqProof = !!(rawList[0] && rawList[0].reqProof);
+    const proofCode = (rawList[0] && rawList[0].proofCode) ? String(rawList[0].proofCode).trim() : 'MC';
+
+    let uploadedProofUrl = '';
+
+    if (isDone && reqProof) {
+      if (!proofFileData || !proofFileData.base64) {
+        return { success: false, message: 'Công việc này bắt buộc phải đính kèm file minh chứng!' };
+      }
+      if (!GAS_DRIVE_WEBHOOK_URL) {
+        return { success: false, message: 'Chưa cấu hình GAS_DRIVE_WEBHOOK_URL để lưu file minh chứng!' };
+      }
+
+      // Lấy đuôi file gốc (.jpg, .png, .pdf, .docx...)
+      const origName = String(proofFileData.fileName || '');
+      const ext = origName.includes('.') ? origName.substring(origName.lastIndexOf('.')) : '';
+      // Tự động đặt tên file: [Mã minh chứng] - [Mã HS 6 số].[đuôi file]
+      const autoFileName = `${proofCode} - ${String(username).trim()}${ext}`;
+
+      const driveRes = await fetch(GAS_DRIVE_WEBHOOK_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'text/plain;charset=utf-8' },
+        body: JSON.stringify({
+          secret: SECRET_KEY,
+          fileName: autoFileName,
+          mimeType: proofFileData.mimeType,
+          base64: proofFileData.base64
+        })
+      });
+      const driveJson = await driveRes.json();
+      if (driveJson && driveJson.success) {
+        uploadedProofUrl = driveJson.fileUrl;
+      } else {
+        return { success: false, message: driveJson?.message || 'Lỗi tải minh chứng lên Google Drive!' };
+      }
+    }
+
+    const assignees = rawList.map(a => {
+      if (String(a.maHS).toLowerCase() === String(username).toLowerCase()) {
+        return {
+          ...a,
+          done: isDone,
+          proofUrl: isDone ? (uploadedProofUrl || a.proofUrl || '') : ''
+        };
+      }
       return a;
     });
+
     await supabase.from('cong_viec').update({ danh_sach_hs: assignees }).eq('id', String(taskId));
     return { success: true };
   } catch (err) { return { success: false, message: err.message }; }
@@ -391,12 +450,20 @@ export async function toggleTaskStatus(taskId, username, isDone, authToken) {
 export async function updateTaskDetails(taskObj, authToken) {
   try {
     enforceRole(authToken, 'MANAGER');
+    const reqProof = !!taskObj.requireProof;
+    const pCode = String(taskObj.proofCode || '').trim();
+    const assigneesWithMeta = (taskObj.assignees || []).map(a => ({
+      ...a,
+      reqProof,
+      proofCode: pCode
+    }));
+
     await supabase.from('cong_viec').update({
       tieu_de: taskObj.tieuDe,
       noi_dung: taskObj.noiDung,
       link_dinh_kem: taskObj.link || '',
       han_chot: taskObj.hanChot || 'Không thời hạn',
-      danh_sach_hs: taskObj.assignees
+      danh_sach_hs: assigneesWithMeta
     }).eq('id', String(taskObj.id));
     return { success: true };
   } catch (err) { return { success: false, message: err.message }; }
