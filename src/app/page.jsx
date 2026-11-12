@@ -1783,35 +1783,98 @@ export default function FullAppPage() {
       }).saveTKBPackage(appData.tkbData.grid, appData.tkbData.notes, getAuthToken());
     };
 
-    // Chuẩn hóa tên môn học từ văn bản OCR đọc được trong từng ô bảng
+    
+  function removeVN(str) {
+      return String(str || '')
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[đĐ]/g, 'd')
+        .toLowerCase()
+        .replace(/[^a-z0-9\s]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+    }
+
     function normalizeSubjectFromText(rawText) {
       if (!rawText) return '';
-      const t = rawText.toLowerCase().replace(/\s+/g, ' ').trim();
-      if (!t || t.length < 2) return '';
-      if (t.includes('chaoco') || t.includes('chào cờ') || t.includes('chao co')) return 'Chào cờ';
-      if (t.includes('sinh hoạt') || t.includes('sinh hoat')) return 'Sinh hoạt';
-      if (t.includes('trải nghiệm') || t.includes('trai nghiem') || t.includes('hướng nghiệp') || t.includes('huong nghiep')) return 'HĐTN-HN';
-      if (t.includes('kinh tế') || t.includes('kinh te') || t.includes('pháp luật') || t.includes('phap luat')) return 'GDKT&PL';
-      if (t.includes('thể chất') || t.includes('the chat')) return 'GDTC';
-      if (t.includes('quốc phòng') || t.includes('quoc phong') || t.includes('an ninh')) return 'GDQP&AN';
-      if (t.includes('địa phương') || t.includes('dia phuong')) return 'GDĐP';
-      if (t.includes('ngoại ngữ') || t.includes('ngoai ngu') || t.includes('tiếng anh')) return 'Tiếng Anh';
-      if (t.includes('toán') || t.includes('toan')) return 'Toán';
-      if (t.includes('ngữ văn') || t.includes('ngu van') || t.includes('văn')) return 'Ngữ văn';
-      if (t.includes('vật lí') || t.includes('vat li') || t.includes('vật lý')) return 'Vật lí';
-      if (t.includes('hóa') || t.includes('hoa hoc')) return 'Hóa học';
-      if (t.includes('sinh học') || t.includes('sinh hoc')) return 'Sinh học';
-      if (t.includes('lịch sử') || t.includes('lich su')) return 'Lịch sử';
-      if (t.includes('địa lí') || t.includes('dia li') || t.includes('địa lý')) return 'Địa lí';
-      if (t.includes('công nghệ') || t.includes('cong nghe')) return 'Công nghệ';
-      if (t.includes('tin học') || t.includes('tin hoc')) return 'Tin học';
+      const s = removeVN(rawText);
+      const compact = s.replace(/\s+/g, '');
+      if (!compact || compact.length < 2) return '';
+
+      if (compact.includes('chaoco') || compact.includes('cha0c0') || s.includes('chao co')) return 'Chào cờ';
+      if (s.includes('sinh hoat') || compact.includes('sinhhoat') || compact.includes('shl')) return 'Sinh hoạt';
+      if (s.includes('trai nghiem') || s.includes('huong nghiep') || s.includes('hoat dong') || compact.includes('hdtn')) return 'HĐTN-HN';
+      if (s.includes('kinh te') || s.includes('phap luat') || compact.includes('gdkt')) return 'GDKT&PL';
+      if (s.includes('the chat') || s.includes('the duc') || compact.includes('gdtc')) return 'GDTC';
+      if (s.includes('quoc phong') || s.includes('an ninh') || compact.includes('gdqp')) return 'GDQP&AN';
+      if (s.includes('dia phuong') || s.includes('noi dung giao duc') || compact.includes('gddp')) return 'GDĐP';
+      if (s.includes('ngoai ngu') || s.includes('tieng anh') || compact.includes('ngoaingu')) return 'Tiếng Anh';
+      if (s.includes('toan')) return 'Toán';
+      if (s.includes('ngu van') || /\bvan\b/.test(s)) return 'Ngữ văn';
+      if (s.includes('vat li') || s.includes('vat ly') || compact.includes('vatli') || compact.includes('vatly')) return 'Vật lí';
+      if (s.includes('hoa hoc') || /\bhoa\b/.test(s)) return 'Hóa học';
+      if (s.includes('sinh hoc')) return 'Sinh học';
+      if (s.includes('lich su') || compact.includes('lichsu')) return 'Lịch sử';
+      if (s.includes('dia li') || s.includes('dia ly') || compact.includes('diali') || compact.includes('dialy') || /\bdia\b/.test(s)) return 'Địa lí';
+      if (s.includes('cong nghe') || compact.includes('congnghe')) return 'Công nghệ';
+      if (s.includes('tin hoc') || /\btin\b/.test(s)) return 'Tin học';
+
       return '';
     }
 
-    // Tự động nạp thư viện đọc chữ Tesseract.js và cắt đúng 9 dòng x 6 cột trong bảng TKB khi Google AI bận
+    function detectTableGridLines(imgElement) {
+      const W = imgElement.width;
+      const H = imgElement.height;
+      const c = document.createElement('canvas');
+      c.width = W; c.height = H;
+      const ctx = c.getContext('2d');
+      ctx.drawImage(imgElement, 0, 0);
+      const data = ctx.getImageData(0, 0, W, H).data;
+
+      const hRaw = [];
+      const xStart = Math.floor(W * 0.12);
+      const xEnd = Math.floor(W * 0.92);
+      const spanW = xEnd - xStart;
+
+      for (let y = 0; y < H; y++) {
+        let darkCount = 0;
+        for (let x = xStart; x < xEnd; x += 2) {
+          const idx = (y * W + x) * 4;
+          if (data[idx] < 175 && data[idx + 1] < 175 && data[idx + 2] < 175) darkCount++;
+        }
+        if (darkCount > (spanW / 2) * 0.60) hRaw.push(y);
+      }
+
+      const hLines = [];
+      for (const y of hRaw) {
+        if (hLines.length === 0 || y - hLines[hLines.length - 1] > 8) hLines.push(y);
+      }
+
+      const vRaw = [];
+      const yStart = hLines.length > 2 ? hLines[1] : Math.floor(H * 0.08);
+      const yEnd = hLines.length > 6 ? hLines[hLines.length - 1] : Math.floor(H * 0.92);
+      const spanH = Math.max(10, yEnd - yStart);
+
+      for (let x = 0; x < W; x++) {
+        let darkCount = 0;
+        for (let y = yStart; y < yEnd; y += 2) {
+          const idx = (y * W + x) * 4;
+          if (data[idx] < 175 && data[idx + 1] < 175 && data[idx + 2] < 175) darkCount++;
+        }
+        if (darkCount > (spanH / 2) * 0.40) vRaw.push(x);
+      }
+
+      const vLines = [];
+      for (const x of vRaw) {
+        if (vLines.length === 0 || x - vLines[vLines.length - 1] > Math.floor(W * 0.04)) vLines.push(x);
+      }
+
+      return { hLines, vLines, pixelData: data };
+    }
+
     async function runLocalGridOCR(imgElement, btn, oldHtml, input) {
       try {
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang đọc bảng trực tiếp...';
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang quét chi tiết từng ô...';
         if (!window.Tesseract) {
           await new Promise((resolve, reject) => {
             const s = document.createElement('script');
@@ -1824,63 +1887,122 @@ export default function FullAppPage() {
 
         const W = imgElement.width;
         const H = imgElement.height;
-        const cellCanvas = document.createElement('canvas');
-        const cellCtx = cellCanvas.getContext('2d');
+        const { hLines, vLines, pixelData } = detectTableGridLines(imgElement);
 
-        // Tọa độ tỷ lệ chuẩn của bảng Thời khóa biểu (Buổi sáng S1..S5 và Buổi chiều C1..C4, cột Thứ 2 -> Thứ 7)
-        const colLefts = [0.072, 0.226, 0.381, 0.535, 0.690, 0.844];
-        const colWidth = 0.148;
-        const rowConfigs = [
-          { id: 'S1', top: 0.088, h: 0.088 },
-          { id: 'S2', top: 0.185, h: 0.088 },
-          { id: 'S3', top: 0.285, h: 0.095 },
-          { id: 'S4', top: 0.388, h: 0.095 },
-          { id: 'S5', top: 0.488, h: 0.085 },
-          { id: 'C1', top: 0.642, h: 0.105 },
-          { id: 'C2', top: 0.758, h: 0.105 },
-          { id: 'C3', top: 0.870, h: 0.038 },
-          { id: 'C4', top: 0.912, h: 0.038 }
-        ];
+        let colBounds = [];
+        if (vLines.length >= 7) {
+          const last7 = vLines.slice(vLines.length - 7);
+          for (let i = 0; i < 6; i++) {
+            colBounds.push({ x1: last7[i], x2: last7[i + 1] });
+          }
+        } else {
+          const colLefts = [0.080, 0.233, 0.386, 0.540, 0.693, 0.846];
+          for (let i = 0; i < 6; i++) {
+            colBounds.push({ x1: Math.round(W * colLefts[i]), x2: Math.round(W * (colLefts[i] + 0.15)) });
+          }
+        }
 
-        const worker = await window.Tesseract.createWorker('vie');
-        const newGrid = [];
+        // Lọc bỏ các hàng tiêu đề (hàng "Buổi sáng", "Buổi chiều" không có vách ngăn dọc ở giữa, và hàng "Thứ 2..Thứ 7" có nền xanh xám)
+        const allBands = [];
+        for (let i = 0; i < hLines.length - 1; i++) {
+          const y1 = hLines[i];
+          const y2 = hLines[i + 1];
+          const rh = y2 - y1;
+          if (rh < H * 0.022) continue; // Bỏ qua viền kép quá mỏng
 
-        for (const rCfg of rowConfigs) {
-          const cols = ['', '', '', '', '', '', ''];
-          for (let c = 0; c < 6; c++) {
-            const sx = Math.round(W * (colLefts[c] + 0.008));
-            const sy = Math.round(H * (rCfg.top + 0.008));
-            const sw = Math.round(W * (colWidth - 0.016));
-            const sh = Math.round(H * (rCfg.h - 0.016));
-
-            cellCanvas.width = sw;
-            cellCanvas.height = sh;
-            cellCtx.fillStyle = '#ffffff';
-            cellCtx.fillRect(0, 0, sw, sh);
-            cellCtx.drawImage(imgElement, sx, sy, sw, sh, 0, 0, sw, sh);
-
-            // Kiểm tra nhanh xem ô có chữ màu đen không, nếu ô trắng tinh thì bỏ qua ngay cho nhanh
-            const imgData = cellCtx.getImageData(0, 0, sw, sh).data;
-            let darkPixels = 0;
-            for (let i = 0; i < imgData.length; i += 16) {
-              if (imgData[i] < 180 && imgData[i + 1] < 180 && imgData[i + 2] < 180) darkPixels++;
-            }
-            if (darkPixels > 15) {
-              const { data: { text } } = await worker.recognize(cellCanvas);
-              cols[c] = normalizeSubjectFromText(text);
+          const midY = Math.floor((y1 + y2) / 2);
+          // Kiểm tra xem ở giữa hàng này có các đường kẻ dọc chia cột không (nếu là dòng chữ "Buổi sáng" gộp ô thì sẽ không có vách dọc)
+          let vCrossings = 0;
+          for (let c = 0; c < colBounds.length; c++) {
+            const vx = colBounds[c].x1;
+            for (let dx = -3; dx <= 3; dx++) {
+              const idx = (midY * W + Math.min(W - 1, Math.max(0, vx + dx))) * 4;
+              if (pixelData[idx] < 180) { vCrossings++; break; }
             }
           }
-          newGrid.push({ id: rCfg.id, cols });
+          if (vCrossings < 3) continue; // Bỏ qua dòng tiêu đề gộp ô "Buổi sáng" / "Buổi chiều"
+
+          // Kiểm tra màu nền của ô Thứ 2 xem có phải hàng tiêu đề "Thứ 2, Thứ 3..." (nền xanh nhạt/xám) hay không
+          const sampleX = Math.floor((colBounds[0].x1 + colBounds[0].x2) / 2);
+          const sampleIdx = ( (y1 + 5) * W + sampleX ) * 4;
+          const rVal = pixelData[sampleIdx], gVal = pixelData[sampleIdx + 1], bVal = pixelData[sampleIdx + 2];
+          const isColoredHeader = (bVal > rVal + 8) || (rVal < 242 && gVal < 245 && bVal < 252 && rh < H * 0.05);
+          if (isColoredHeader) continue; // Bỏ qua dòng tiêu đề Thứ 2..Thứ 7
+
+          allBands.push({ y1, y2 });
+        }
+
+        const targetIds = ['S1', 'S2', 'S3', 'S4', 'S5', 'C1', 'C2', 'C3', 'C4'];
+        const rowBounds = targetIds.map((id, idx) => {
+          if (idx < allBands.length) return { id, y1: allBands[idx].y1, y2: allBands[idx].y2 };
+          return { id, y1: 0, y2: 0 };
+        });
+
+        const cellCanvas = document.createElement('canvas');
+        const cellCtx = cellCanvas.getContext('2d');
+        const worker = await window.Tesseract.createWorker('vie');
+        // Chế độ PSM 6 bắt buộc Tesseract đọc từng cụm từ ngắn trong ô (như "Địa lí", "Vật lí") không bao giờ bỏ sót
+        await worker.setParameters({ tessedit_pageseg_mode: '6' });
+
+        const newGrid = [];
+        let detectedCount = 0;
+
+        for (const r of rowBounds) {
+          const cols = ['', '', '', '', '', '', ''];
+          const rh = r.y2 - r.y1;
+
+          if (rh > 14) {
+            for (let c = 0; c < 6; c++) {
+              const cw = colBounds[c].x2 - colBounds[c].x1;
+              const padX = 5;
+              const padY = 4;
+              const sx = colBounds[c].x1 + padX;
+              const sy = r.y1 + padY;
+              const sw = Math.max(10, cw - padX * 2);
+              const sh = Math.max(10, rh - padY * 2);
+
+              const scale = 2.5;
+              const margin = 20;
+              cellCanvas.width = Math.round(sw * scale + margin * 2);
+              cellCanvas.height = Math.round(sh * scale + margin * 2);
+              cellCtx.fillStyle = '#ffffff';
+              cellCtx.fillRect(0, 0, cellCanvas.width, cellCanvas.height);
+              cellCtx.drawImage(imgElement, sx, sy, sw, sh, margin, margin, Math.round(sw * scale), Math.round(sh * scale));
+
+              const imgDataObj = cellCtx.getImageData(0, 0, cellCanvas.width, cellCanvas.height);
+              const px = imgDataObj.data;
+              let darkPixels = 0;
+              for (let i = 0; i < px.length; i += 4) {
+                const gray = (px[i] + px[i + 1] + px[i + 2]) / 3;
+                if (gray < 200) {
+                  darkPixels++;
+                  px[i] = px[i + 1] = px[i + 2] = 0;
+                } else {
+                  px[i] = px[i + 1] = px[i + 2] = 255;
+                }
+              }
+              cellCtx.putImageData(imgDataObj, 0, 0);
+
+              if (darkPixels > 15) {
+                const { data: { text } } = await worker.recognize(cellCanvas);
+                const subj = normalizeSubjectFromText(text);
+                if (subj) {
+                  cols[c] = subj;
+                  detectedCount++;
+                }
+              }
+            }
+          }
+          newGrid.push({ id: r.id, cols });
         }
 
         await worker.terminate();
         appData.tkbData.grid = newGrid;
         window.renderTKBTable();
-        window.saveAllScheduleAndNotes(true);
         btn.innerHTML = oldHtml;
         btn.disabled = false;
         input.value = '';
-        alert('🎉 Đã nhận diện và điền Thời Khóa Biểu trực tiếp thành công!');
+        alert(`✅ Đã quét xong ${detectedCount} tiết học lên bảng!\n\n👉 Thầy hãy kiểm tra lại trên bảng, nếu đã chuẩn hãy bấm nút màu xanh "Lưu Thay Đổi" để áp dụng cho học sinh nhé!`);
       } catch (err) {
         btn.innerHTML = oldHtml;
         btn.disabled = false;
@@ -1894,7 +2016,7 @@ export default function FullAppPage() {
       const file = input.files[0];
       const btn = document.getElementById('btnScanTKB');
       const oldHtml = btn.innerHTML;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang đọc ảnh TKB...';
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang phân tích ảnh TKB...';
       btn.disabled = true;
 
       const reader = new FileReader();
@@ -1908,7 +2030,7 @@ export default function FullAppPage() {
           canvas.height = Math.round(img.height * scale);
           const ctx = canvas.getContext('2d');
           ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.88);
 
           window.google.script.run.withSuccessHandler(res => {
             if (res && res.success && Array.isArray(res.grid)) {
@@ -1917,10 +2039,10 @@ export default function FullAppPage() {
               input.value = '';
               appData.tkbData.grid = res.grid;
               window.renderTKBTable();
-              window.saveAllScheduleAndNotes(true);
-              alert('🎉 Đã nhận diện và điền Thời Khóa Biểu thành công!');
+              let count = 0;
+              res.grid.forEach(r => (r.cols || []).forEach(c => { if (c) count++; }));
+              alert(`🎉 AI đã nhận diện đầy đủ ${count} tiết học lên bảng!\n\n👉 Thầy hãy kiểm tra qua một lượt, sau đó bấm nút "Lưu Thay Đổi" để lưu chính thức nhé!`);
             } else if (res && res.fallbackLocal) {
-              // Tự động chuyển sang đọc trực tiếp trên trình duyệt khi Google AI quá tải
               runLocalGridOCR(img, btn, oldHtml, input);
             } else {
               btn.innerHTML = oldHtml;
@@ -1934,7 +2056,7 @@ export default function FullAppPage() {
       };
       reader.readAsDataURL(file);
     };
-
+    
     // ================= CÔNG VIỆC =================
     window.renderStudentsForModal = function() {
       const container = document.getElementById('studentCheckList');
