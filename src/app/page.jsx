@@ -1783,6 +1783,112 @@ export default function FullAppPage() {
       }).saveTKBPackage(appData.tkbData.grid, appData.tkbData.notes, getAuthToken());
     };
 
+    // Chuẩn hóa tên môn học từ văn bản OCR đọc được trong từng ô bảng
+    function normalizeSubjectFromText(rawText) {
+      if (!rawText) return '';
+      const t = rawText.toLowerCase().replace(/\s+/g, ' ').trim();
+      if (!t || t.length < 2) return '';
+      if (t.includes('chaoco') || t.includes('chào cờ') || t.includes('chao co')) return 'Chào cờ';
+      if (t.includes('sinh hoạt') || t.includes('sinh hoat')) return 'Sinh hoạt';
+      if (t.includes('trải nghiệm') || t.includes('trai nghiem') || t.includes('hướng nghiệp') || t.includes('huong nghiep')) return 'HĐTN-HN';
+      if (t.includes('kinh tế') || t.includes('kinh te') || t.includes('pháp luật') || t.includes('phap luat')) return 'GDKT&PL';
+      if (t.includes('thể chất') || t.includes('the chat')) return 'GDTC';
+      if (t.includes('quốc phòng') || t.includes('quoc phong') || t.includes('an ninh')) return 'GDQP&AN';
+      if (t.includes('địa phương') || t.includes('dia phuong')) return 'GDĐP';
+      if (t.includes('ngoại ngữ') || t.includes('ngoai ngu') || t.includes('tiếng anh')) return 'Tiếng Anh';
+      if (t.includes('toán') || t.includes('toan')) return 'Toán';
+      if (t.includes('ngữ văn') || t.includes('ngu van') || t.includes('văn')) return 'Ngữ văn';
+      if (t.includes('vật lí') || t.includes('vat li') || t.includes('vật lý')) return 'Vật lí';
+      if (t.includes('hóa') || t.includes('hoa hoc')) return 'Hóa học';
+      if (t.includes('sinh học') || t.includes('sinh hoc')) return 'Sinh học';
+      if (t.includes('lịch sử') || t.includes('lich su')) return 'Lịch sử';
+      if (t.includes('địa lí') || t.includes('dia li') || t.includes('địa lý')) return 'Địa lí';
+      if (t.includes('công nghệ') || t.includes('cong nghe')) return 'Công nghệ';
+      if (t.includes('tin học') || t.includes('tin hoc')) return 'Tin học';
+      return '';
+    }
+
+    // Tự động nạp thư viện đọc chữ Tesseract.js và cắt đúng 9 dòng x 6 cột trong bảng TKB khi Google AI bận
+    async function runLocalGridOCR(imgElement, btn, oldHtml, input) {
+      try {
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang đọc bảng trực tiếp...';
+        if (!window.Tesseract) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
+
+        const W = imgElement.width;
+        const H = imgElement.height;
+        const cellCanvas = document.createElement('canvas');
+        const cellCtx = cellCanvas.getContext('2d');
+
+        // Tọa độ tỷ lệ chuẩn của bảng Thời khóa biểu (Buổi sáng S1..S5 và Buổi chiều C1..C4, cột Thứ 2 -> Thứ 7)
+        const colLefts = [0.072, 0.226, 0.381, 0.535, 0.690, 0.844];
+        const colWidth = 0.148;
+        const rowConfigs = [
+          { id: 'S1', top: 0.088, h: 0.088 },
+          { id: 'S2', top: 0.185, h: 0.088 },
+          { id: 'S3', top: 0.285, h: 0.095 },
+          { id: 'S4', top: 0.388, h: 0.095 },
+          { id: 'S5', top: 0.488, h: 0.085 },
+          { id: 'C1', top: 0.642, h: 0.105 },
+          { id: 'C2', top: 0.758, h: 0.105 },
+          { id: 'C3', top: 0.870, h: 0.038 },
+          { id: 'C4', top: 0.912, h: 0.038 }
+        ];
+
+        const worker = await window.Tesseract.createWorker('vie');
+        const newGrid = [];
+
+        for (const rCfg of rowConfigs) {
+          const cols = ['', '', '', '', '', '', ''];
+          for (let c = 0; c < 6; c++) {
+            const sx = Math.round(W * (colLefts[c] + 0.008));
+            const sy = Math.round(H * (rCfg.top + 0.008));
+            const sw = Math.round(W * (colWidth - 0.016));
+            const sh = Math.round(H * (rCfg.h - 0.016));
+
+            cellCanvas.width = sw;
+            cellCanvas.height = sh;
+            cellCtx.fillStyle = '#ffffff';
+            cellCtx.fillRect(0, 0, sw, sh);
+            cellCtx.drawImage(imgElement, sx, sy, sw, sh, 0, 0, sw, sh);
+
+            // Kiểm tra nhanh xem ô có chữ màu đen không, nếu ô trắng tinh thì bỏ qua ngay cho nhanh
+            const imgData = cellCtx.getImageData(0, 0, sw, sh).data;
+            let darkPixels = 0;
+            for (let i = 0; i < imgData.length; i += 16) {
+              if (imgData[i] < 180 && imgData[i + 1] < 180 && imgData[i + 2] < 180) darkPixels++;
+            }
+            if (darkPixels > 15) {
+              const { data: { text } } = await worker.recognize(cellCanvas);
+              cols[c] = normalizeSubjectFromText(text);
+            }
+          }
+          newGrid.push({ id: rCfg.id, cols });
+        }
+
+        await worker.terminate();
+        appData.tkbData.grid = newGrid;
+        window.renderTKBTable();
+        window.saveAllScheduleAndNotes(true);
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+        input.value = '';
+        alert('🎉 Đã nhận diện và điền Thời Khóa Biểu trực tiếp thành công!');
+      } catch (err) {
+        btn.innerHTML = oldHtml;
+        btn.disabled = false;
+        input.value = '';
+        alert('Lỗi đọc bảng: ' + err.message);
+      }
+    }
+
     window.handleScanTKBImage = function(input) {
       if (!input.files || !input.files[0]) return;
       const file = input.files[0];
@@ -1805,16 +1911,21 @@ export default function FullAppPage() {
           const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
 
           window.google.script.run.withSuccessHandler(res => {
-            btn.innerHTML = oldHtml;
-            btn.disabled = false;
-            input.value = '';
             if (res && res.success && Array.isArray(res.grid)) {
-              // Giữ lại ghi chú dòng 2 (màu đỏ) nếu giáo viên đã nhập trước đó hoặc ghi đè môn mới
+              btn.innerHTML = oldHtml;
+              btn.disabled = false;
+              input.value = '';
               appData.tkbData.grid = res.grid;
               window.renderTKBTable();
               window.saveAllScheduleAndNotes(true);
               alert('🎉 Đã nhận diện và điền Thời Khóa Biểu thành công!');
+            } else if (res && res.fallbackLocal) {
+              // Tự động chuyển sang đọc trực tiếp trên trình duyệt khi Google AI quá tải
+              runLocalGridOCR(img, btn, oldHtml, input);
             } else {
+              btn.innerHTML = oldHtml;
+              btn.disabled = false;
+              input.value = '';
               alert('Lỗi: ' + (res ? res.message : 'Không thể đọc ảnh'));
             }
           }).scanTKBImageWithAI(compressedBase64, 'image/jpeg', getAuthToken());
