@@ -254,7 +254,7 @@ const RAW_BODY_HTML = `
 
             <div class="overflow-x-auto">
               <table class="w-full text-center border-collapse text-xs">
-                <thead class="bg-[#19376D] text-white font-bold uppercase sticky top-0 z-10">
+                <thead id="tblFullTKBHead" class="bg-[#19376D] text-white font-bold uppercase sticky top-0 z-10">
                   <tr>
                     <th class="p-2.5 border border-slate-600 w-24 bg-[#19376D]">Ca / Giờ</th>
                     <th class="p-2.5 border border-slate-600 min-w-[95px]">Thứ 2</th>
@@ -1221,15 +1221,57 @@ export default function FullAppPage() {
     };
 
     const subjectColorPalette = [
-      { bg: '#dcfce7', text: '#15803d', border: '#bbf7d0' },
-      { bg: '#e0f2fe', text: '#0369a1', border: '#bae6fd' },
-      { bg: '#fef3c7', text: '#b45309', border: '#fde68a' },
-      { bg: '#f3e8ff', text: '#7e22ce', border: '#e9d5ff' },
-      { bg: '#ffe4e6', text: '#be123c', border: '#fecdd3' },
-      { bg: '#ccfbf1', text: '#0f766e', border: '#99f6e4' },
-      { bg: '#ffedd5', text: '#c2410c', border: '#fed7aa' }
+      { bg: '#dbeafe', text: '#1d4ed8', border: '#93c5fd' }, // 1. Xanh dương đậm (Toán)
+      { bg: '#fce7f3', text: '#be185d', border: '#f9a8d4' }, // 2. Hồng sen (Ngữ văn)
+      { bg: '#fef3c7', text: '#b45309', border: '#fcd34d' }, // 3. Vàng hổ phách (Tiếng Anh)
+      { bg: '#e0e7ff', text: '#4338ca', border: '#a5b4fc' }, // 4. Chàm Indigo (Vật lí)
+      { bg: '#dcfce7', text: '#15803d', border: '#86efac' }, // 5. Xanh lá cây (Hóa học)
+      { bg: '#ccfbf1', text: '#0f766e', border: '#5eead4' }, // 6. Xanh ngọc lục bảo (Sinh học)
+      { bg: '#ffedd5', text: '#c2410c', border: '#fdba74' }, // 7. Cam đất (Lịch sử)
+      { bg: '#e0f2fe', text: '#0369a1', border: '#7dd3fc' }, // 8. Xanh da trời (Địa lí)
+      { bg: '#f3e8ff', text: '#7e22ce', border: '#d8b4fe' }, // 9. Tím Huế (GDKT&PL)
+      { bg: '#fae8ff', text: '#a21caf', border: '#f0abfc' }, // 10. Tím hồng Fuchsia (Công nghệ)
+      { bg: '#cffafe', text: '#0e7490', border: '#67e8f9' }, // 11. Xanh Cyan (Tin học)
+      { bg: '#ecfccb', text: '#3f6212', border: '#bef264' }, // 12. Xanh cốm Lime (GDTC)
+      { bg: '#d1fae5', text: '#065f46', border: '#6ee7b7' }, // 13. Xanh rêu quân đội (GDQP&AN)
+      { bg: '#ffe4e6', text: '#e11d48', border: '#fda4af' }, // 14. Đỏ hồng Rose (HĐTN-HN)
+      { bg: '#fef9c3', text: '#854d0e', border: '#fde047' }, // 15. Vàng chanh (GDĐP)
+      { bg: '#fee2e2', text: '#b91c1c', border: '#fca5a5' }, // 16. Đỏ cờ (Chào cờ)
+      { bg: '#ede9fe', text: '#5b21b6', border: '#c4b5fd' }, // 17. Tím Violet (Sinh hoạt)
+      { bg: '#f1f5f9', text: '#334155', border: '#cbd5e1' }, // 18. Xám bạc
+      { bg: '#f5d0fe', text: '#86198f', border: '#e879f9' }, // 19. Tím sẫm
+      { bg: '#fed7aa', text: '#9a3412', border: '#fb923c' }  // 20. Nâu cam
     ];
 
+    // Map cố định mỗi môn 1 màu riêng biệt để không bao giờ trùng nhau
+    const fixedSubjectColors = {
+      'toán': subjectColorPalette[0],
+      'toán học': subjectColorPalette[0],
+      'ngữ văn': subjectColorPalette[1],
+      'văn': subjectColorPalette[1],
+      'tiếng anh': subjectColorPalette[2],
+      'ngoại ngữ': subjectColorPalette[2],
+      'vật lí': subjectColorPalette[3],
+      'vật lý': subjectColorPalette[3],
+      'hóa học': subjectColorPalette[4],
+      'sinh học': subjectColorPalette[5],
+      'lịch sử': subjectColorPalette[6],
+      'địa lí': subjectColorPalette[7],
+      'địa lý': subjectColorPalette[7],
+      'gdkt&pl': subjectColorPalette[8],
+      'công nghệ': subjectColorPalette[9],
+      'tin học': subjectColorPalette[10],
+      'gdtc': subjectColorPalette[11],
+      'giáo dục thể chất': subjectColorPalette[11],
+      'gdqp&an': subjectColorPalette[12],
+      'hđtn-hn': subjectColorPalette[13],
+      'gdđp': subjectColorPalette[14],
+      'chào cờ': subjectColorPalette[15],
+      'chaoco': subjectColorPalette[15],
+      'sinh hoạt': subjectColorPalette[16]
+    };
+
+    
     const tkbRowsConfig = [
       { type: 'header', label: '▼ BUỔI SÁNG (TRƯỜNG)', bg: '#e0f2fe', color: '#0369a1' },
       { id: 'S1', label: 'T1: 7h-7h45' },
@@ -1636,7 +1678,7 @@ export default function FullAppPage() {
       }).changeUserPassword(currentUser.username, oldP, newP, getAuthToken());
     };
 
-    // ================= THỜI KHÓA BIỂU =================
+   // ================= THỜI KHÓA BIỂU =================
     window.renderTKBTable = function() {
       const tbody = document.getElementById('tblFullTKBBody');
       if (!tbody) return;
@@ -1644,22 +1686,69 @@ export default function FullAppPage() {
       const r = (currentUser && currentUser.role) ? currentUser.role.toLowerCase() : '';
       const canEditTKB = (r === 'admin' || r === 'lopphohoctap' || r.includes('học tập') || r.includes('hoc tap'));
 
-      const subjectColorMap = {};
-      let colorIndex = 0;
+      // 1. Tính ngày trong tuần hiện tại (Thứ 2 -> Chủ Nhật) và xác định cột ngày hôm nay (0 = Thứ 2 ... 6 = CN)
+      const now = new Date();
+      const jsDay = now.getDay(); // 0 là CN, 1..6 là T2..T7
+      const todayColIdx = jsDay === 0 ? 6 : jsDay - 1;
+      const monday = new Date(now);
+      monday.setDate(now.getDate() - todayColIdx);
 
+      const dayNames = ['THỨ 2', 'THỨ 3', 'THỨ 4', 'THỨ 5', 'THỨ 6', 'THỨ 7', 'CHỦ NHẬT'];
+      const thead = document.getElementById('tblFullTKBHead');
+      if (thead) {
+        let headColsHtml = `<th class="p-2.5 border border-slate-600 w-24 bg-[#19376D] align-middle">CA / GIỜ</th>`;
+        for (let d = 0; d < 7; d++) {
+          const curDate = new Date(monday);
+          curDate.setDate(monday.getDate() + d);
+          const dd = String(curDate.getDate()).padStart(2, '0');
+          const mm = String(curDate.getMonth() + 1).padStart(2, '0');
+          const isToday = (d === todayColIdx);
+
+          headColsHtml += `
+            <th class="p-2 border border-slate-600 min-w-[100px] ${isToday ? 'bg-[#0f2952] ring-2 ring-inset ring-emerald-400' : 'bg-[#19376D]'}">
+              <div class="font-extrabold text-xs tracking-wide ${isToday ? 'text-emerald-300' : 'text-white'}">${dayNames[d]}</div>
+              <div class="text-[11px] font-medium ${isToday ? 'text-emerald-200' : 'text-slate-300'} mt-0.5">${dd}/${mm}</div>
+            </th>
+          `;
+        }
+        thead.innerHTML = `<tr>${headColsHtml}</tr>`;
+      }
+
+      // 2. Gán màu riêng biệt cho từng môn học (không trùng nhau)
+      const subjectColorMap = {};
+      const usedPaletteIndices = new Set();
+
+      // Đánh dấu các màu cố định đã được sử dụng
+      Object.values(fixedSubjectColors).forEach(colObj => {
+        const idx = subjectColorPalette.indexOf(colObj);
+        if (idx !== -1) usedPaletteIndices.add(idx);
+      });
+
+      let dynamicColorIdx = 0;
       (appData.tkbData.grid || []).forEach(row => {
         (row.cols || []).forEach(cellText => {
           if (cellText) {
             const firstLine = String(cellText).split('\n')[0].trim().toLowerCase();
             if (firstLine && !subjectColorMap[firstLine]) {
-              subjectColorMap[firstLine] = subjectColorPalette[colorIndex % subjectColorPalette.length];
-              colorIndex++;
+              if (fixedSubjectColors[firstLine]) {
+                subjectColorMap[firstLine] = fixedSubjectColors[firstLine];
+              } else {
+                // Nếu là môn tự nhập mới ngoài danh sách, lấy màu tiếp theo chưa dùng
+                while (usedPaletteIndices.has(dynamicColorIdx % subjectColorPalette.length) && usedPaletteIndices.size < subjectColorPalette.length) {
+                  dynamicColorIdx++;
+                }
+                const chosen = subjectColorPalette[dynamicColorIdx % subjectColorPalette.length];
+                subjectColorMap[firstLine] = chosen;
+                usedPaletteIndices.add(dynamicColorIdx % subjectColorPalette.length);
+                dynamicColorIdx++;
+              }
             }
           }
         });
       });
 
-      tkbRowsConfig.forEach((cfg) => {
+      // 3. Render các hàng tiết học và tô màu cột ngày hiện tại giống hình mẫu
+      tkbRowsConfig.forEach((cfg, cfgIdx) => {
         if (cfg.type === 'header') {
           tbody.innerHTML += `
             <tr style="background-color: ${cfg.bg}; color: ${cfg.color}; font-weight: 800;" class="text-[11px] uppercase tracking-wider">
@@ -1670,13 +1759,18 @@ export default function FullAppPage() {
           let rowData = (appData.tkbData.grid || []).find(r => r.id === cfg.id) || { id: cfg.id, cols: ['', '', '', '', '', '', ''] };
           let cellsHtml = '';
 
+          // Kiểm tra xem có phải dòng đầu hoặc dòng cuối của một buổi để bo viền xanh cột ngày hôm nay cho liền mạch
+          const isFirstOfSession = (cfg.id === 'S1' || cfg.id === 'C1');
+          const isLastOfSession = (cfg.id === 'S5' || cfg.id === 'C4');
+
           for (let d = 0; d < 7; d++) {
+            const isToday = (d === todayColIdx);
             const rawContent = String(rowData.cols[d] || '');
             const lines = rawContent.split('\n').filter(l => l.trim() !== '');
             const mainText = lines[0] || '';
             const subLines = lines.slice(1);
 
-            let cellStyle = 'background-color: #ffffff; color: #334155;';
+            let cellStyle = 'background-color: transparent; color: #334155;';
             if (mainText.trim()) {
               const matchedColor = subjectColorMap[mainText.trim().toLowerCase()];
               if (matchedColor) {
@@ -1686,14 +1780,21 @@ export default function FullAppPage() {
 
             let formattedDisplay = '';
             if (mainText) {
-              formattedDisplay = `<div>${mainText}</div>`;
+              formattedDisplay = `<div class="font-extrabold">${mainText}</div>`;
               if (subLines.length > 0) {
-                formattedDisplay += subLines.map(sl => `<span class="sub-line-red">${sl}</span>`).join('');
+                formattedDisplay += subLines.map(sl => `<span class="sub-line-red italic font-bold block text-red-600 text-[11px] leading-tight mt-0.5">${sl}</span>`).join('');
               }
             }
 
+            // Tô màu nền xanh nhạt (#e6f4ea) và viền xanh lá (#16a34a) cho cột ngày hôm nay giống hệt hình mẫu
+            let tdClass = 'p-1 border border-slate-200 align-middle transition';
+            let tdStyle = '';
+            if (isToday) {
+              tdStyle = `background-color: #e6f4ea; border-left: 2px solid #16a34a; border-right: 2px solid #16a34a; border-top: ${isFirstOfSession ? '2px solid #16a34a' : '1px solid #86efac'}; border-bottom: ${isLastOfSession ? '2px solid #16a34a' : '1px solid #86efac'};`;
+            }
+
             cellsHtml += `
-              <td class="p-1 border border-slate-200 align-middle">
+              <td class="${tdClass}" style="${tdStyle}">
                 <div class="tkb-cell-editable" 
                      style="${cellStyle}" 
                      contenteditable="${canEditTKB}" 
@@ -1707,7 +1808,7 @@ export default function FullAppPage() {
 
           tbody.innerHTML += `
             <tr class="hover:bg-slate-50/60">
-              <td class="p-2 border border-slate-200 font-bold bg-slate-50 text-slate-700 text-center sticky left-0 z-0 whitespace-nowrap">${cfg.label}</td>
+              <td class="p-2 border border-slate-200 font-bold bg-slate-50 text-slate-800 text-center sticky left-0 z-0 whitespace-nowrap">${cfg.label}</td>
               ${cellsHtml}
             </tr>
           `;
