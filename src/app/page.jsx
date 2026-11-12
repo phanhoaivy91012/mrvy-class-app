@@ -973,6 +973,35 @@ const RAW_BODY_HTML = `
     </div>
   </div>
 
+  <!-- MODAL HỌC SINH NỘP MINH CHỨNG -->
+  <div id="proofUploadModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
+    <div class="bg-white rounded-3xl p-6 w-full max-w-md shadow-2xl text-left">
+      <div class="flex justify-between items-center pb-3 border-b mb-4">
+        <h3 class="font-bold text-slate-800 text-base flex items-center gap-2">
+          <i class="fa-solid fa-cloud-arrow-up text-emerald-600"></i> Nộp Minh Chứng Hoàn Thành
+        </h3>
+        <button onclick="closeProofUploadModal()" class="text-slate-400 hover:text-slate-600 text-xl"><i class="fa-solid fa-xmark"></i></button>
+      </div>
+      <input type="hidden" id="proofModalTaskId">
+      <div class="space-y-3 text-xs">
+        <div class="bg-emerald-50 border border-emerald-200 p-3 rounded-2xl text-emerald-900">
+          <div class="font-bold mb-1">📌 Nhiệm vụ: <span id="proofModalTaskTitle">...</span></div>
+          <div class="text-[11px] text-emerald-700">File nộp lên sẽ tự động đặt tên thành: <b id="proofModalAutoName" class="font-mono bg-white px-1.5 py-0.5 rounded border">...</b></div>
+        </div>
+        <div>
+          <label class="block font-bold text-slate-600 uppercase mb-1">Chọn ảnh hoặc file minh chứng *</label>
+          <input type="file" id="studentProofFile" accept="image/*,.pdf,.doc,.docx,.xls,.xlsx,.zip" class="w-full p-2 border rounded-xl bg-slate-50 text-xs">
+        </div>
+      </div>
+      <div class="pt-4 border-t flex justify-end gap-2 mt-4">
+        <button onclick="closeProofUploadModal()" class="px-4 py-2 text-slate-600 rounded-xl font-semibold text-xs">Hủy</button>
+        <button onclick="submitStudentProof()" id="btnSubmitProof" class="px-5 py-2 bg-emerald-600 hover:bg-emerald-700 text-white font-bold rounded-xl text-xs shadow transition flex items-center gap-1.5">
+          <i class="fa-solid fa-check-double"></i> Tải lên & Hoàn thành
+        </button>
+      </div>
+    </div>
+  </div>
+
   <!-- MODAL GIAO VIỆC -->
   <div id="taskModal" class="hidden fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center p-4 z-50">
     <div class="bg-white rounded-3xl p-5 w-full max-w-lg flex flex-col shadow-2xl">
@@ -999,9 +1028,19 @@ const RAW_BODY_HTML = `
             <input type="date" id="taskDeadline" class="w-full p-2 border rounded-xl">
           </div>
         </div>
-        <div>
-          <label class="block font-bold text-slate-600 uppercase mb-1">File Drive</label>
+      <div>
+          <label class="block font-bold text-slate-600 uppercase mb-1">File Drive đính kèm (Đề bài/Tài liệu)</label>
           <input type="file" id="taskFile" class="w-full text-xs">
+        </div>
+        <div class="bg-amber-50/70 p-3 rounded-2xl border border-amber-200 space-y-2">
+          <label class="flex items-center gap-2 cursor-pointer font-bold text-amber-900 text-xs">
+            <input type="checkbox" id="taskRequireProof" onchange="toggleProofCodeInput()" class="w-4 h-4 rounded text-amber-600">
+            <span>📸 Bắt buộc học sinh nộp file/ảnh minh chứng khi xác nhận xong</span>
+          </label>
+          <div id="proofCodeContainer" class="hidden pt-1">
+            <label class="block font-bold text-slate-600 uppercase mb-1 text-[11px]">Mã minh chứng (Hệ thống tự ghép: Mã - ID học sinh 6 số) *</label>
+            <input type="text" id="taskProofCode" placeholder="VD: BTVN01, DOANPHI, ..." class="w-full p-2 border border-amber-300 rounded-xl bg-white outline-none font-mono font-bold text-xs text-amber-800">
+          </div>
         </div>
         <div>
           <div class="flex justify-between items-center mb-1">
@@ -1683,8 +1722,23 @@ export default function FullAppPage() {
       document.querySelectorAll('.student-checkbox').forEach(cb => cb.checked = isAllSelected);
     };
 
+    
+    window.toggleProofCodeInput = function() {
+      const checked = document.getElementById('taskRequireProof').checked;
+      document.getElementById('proofCodeContainer').classList.toggle('hidden', !checked);
+    };
+
     window.openTaskModal = function() {
       editingTaskId = null;
+      document.getElementById('taskTitle').value = '';
+      document.getElementById('taskDesc').value = '';
+      document.getElementById('taskLink').value = '';
+      document.getElementById('taskDeadline').value = '';
+      document.getElementById('taskFile').value = '';
+      document.getElementById('taskRequireProof').checked = false;
+      document.getElementById('taskProofCode').value = '';
+      window.toggleProofCodeInput();
+
       const btn = document.getElementById('btnSubmitTask');
       if (btn) {
         btn.innerText = 'Giao việc';
@@ -1700,19 +1754,25 @@ export default function FullAppPage() {
       const link = document.getElementById('taskLink').value.trim();
       const hanChot = document.getElementById('taskDeadline').value;
       const fileInput = document.getElementById('taskFile');
+      const requireProof = document.getElementById('taskRequireProof').checked;
+      const proofCode = document.getElementById('taskProofCode').value.trim();
       
       const assignees = [];
       document.querySelectorAll('.student-checkbox:checked').forEach(cb => {
-        assignees.push({ maHS: cb.value, hoTen: cb.getAttribute('data-name'), done: false });
+        assignees.push({ maHS: cb.value, hoTen: cb.getAttribute('data-name'), done: false, proofUrl: '' });
       });
 
       if (!tieuDe) { alert('Vui lòng nhập tên công việc!'); return; }
+      if (requireProof && !proofCode) { alert('Vui lòng đặt tên Mã minh chứng (VD: BTVN01)!'); return; }
       if (assignees.length === 0) { alert('Vui lòng chọn ít nhất 1 học sinh nhận việc!'); return; }
 
       const formObj = {
         tieuDe: tieuDe, noiDung: noiDung, link: link,
         hanChot: hanChot ? hanChot.split('-').reverse().join('/') : 'Không thời hạn',
-        nguoiGiao: currentUser.hoTen, assignees: assignees
+        nguoiGiao: currentUser.hoTen,
+        requireProof: requireProof,
+        proofCode: proofCode,
+        assignees: assignees
       };
 
       const btn = document.getElementById('btnSubmitTask');
@@ -1741,11 +1801,6 @@ export default function FullAppPage() {
             alert(`Đã giao việc và gửi email thông báo thành công cho ${res.emailSentCount} học sinh!`);
           }
           window.closeTaskModal();
-          document.getElementById('taskTitle').value = '';
-          document.getElementById('taskDesc').value = '';
-          document.getElementById('taskLink').value = '';
-          document.getElementById('taskDeadline').value = '';
-          document.getElementById('taskFile').value = '';
           window.loadData();
         } else {
           alert('Lỗi: ' + res.message);
@@ -1849,6 +1904,7 @@ export default function FullAppPage() {
           const myAss = t.assignees.find(a => String(a.maHS).toLowerCase() === String(currentUser.username).toLowerCase());
           const isAssignedToMe = !!myAss;
           const isMyTaskDone = myAss ? myAss.done : false;
+          const myProofUrl = myAss ? (myAss.proofUrl || '') : '';
           const isExpired = isTaskExpired(t.hanChot);
 
           if (isAssignedToMe && !isMyTaskDone && !isExpired) {
@@ -1859,6 +1915,7 @@ export default function FullAppPage() {
           const completed = t.assignees.filter(a => a.done).length;
           const percent = total > 0 ? Math.round((completed / total) * 100) : 0;
           const uncompletedList = t.assignees.filter(a => !a.done);
+          const submittedProofs = t.assignees.filter(a => a.done && a.proofUrl);
           const isClassAllDone = (total > 0 && completed === total);
 
           let cardStyle = 'border-slate-200 bg-white shadow-sm';
@@ -1896,7 +1953,10 @@ export default function FullAppPage() {
             <div class="rounded-3xl p-5 border ${cardStyle} transition flex flex-col justify-between">
               <div>
                 <div class="flex items-start justify-between gap-3 mb-2">
-                  <h3 class="font-extrabold ${isExpired && !isClassAllDone ? 'text-slate-900' : 'text-slate-800'} text-base leading-snug">${t.tieuDe}</h3>
+                  <div>
+                    <h3 class="font-extrabold ${isExpired && !isClassAllDone ? 'text-slate-900' : 'text-slate-800'} text-base leading-snug">${t.tieuDe}</h3>
+                    ${t.requireProof ? `<span class="inline-flex items-center gap-1 mt-1 px-2.5 py-0.5 rounded-lg bg-amber-100 text-amber-800 font-bold text-[11px]"><i class="fa-solid fa-camera"></i> Bắt buộc nộp minh chứng (Mã: ${t.proofCode})</span>` : ''}
+                  </div>
                   <div class="flex items-center gap-2 flex-shrink-0">
                     ${statusBadge}
                     ${isManager ? `
@@ -1917,6 +1977,7 @@ export default function FullAppPage() {
                 <div class="flex flex-wrap gap-2 mb-3">
                   ${t.link ? `<a href="${t.link}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1 bg-blue-50 text-blue-700 rounded-xl text-xs font-bold hover:bg-blue-100 transition"><i class="fa-solid fa-link"></i> Mở link</a>` : ''}
                   ${t.file ? `<a href="${t.file}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1 bg-emerald-50 text-emerald-700 rounded-xl text-xs font-bold hover:bg-emerald-100 transition"><i class="fa-solid fa-file-arrow-down"></i> Tải File</a>` : ''}
+                  ${myProofUrl ? `<a href="${myProofUrl}" target="_blank" class="inline-flex items-center gap-1.5 px-3 py-1 bg-purple-50 text-purple-700 rounded-xl text-xs font-bold hover:bg-purple-100 transition"><i class="fa-solid fa-file-circle-check"></i> Minh chứng của tôi</a>` : ''}
                 </div>
 
                 <div class="mb-3 bg-slate-50 p-3 rounded-2xl border border-slate-100 text-xs">
@@ -1928,6 +1989,15 @@ export default function FullAppPage() {
                     <div class="${isClassAllDone ? 'bg-emerald-500' : (isExpired ? 'bg-slate-700' : 'bg-blue-600')} h-2 rounded-full transition-all" style="width: ${percent}%"></div>
                   </div>
                 </div>
+
+                ${isManager && submittedProofs.length > 0 ? `
+                  <div class="text-xs bg-purple-50/70 p-2.5 rounded-xl border border-purple-200 mb-2">
+                    <b class="font-bold text-purple-900 block mb-1"><i class="fa-solid fa-folder-open mr-1"></i> Minh chứng đã nộp (${submittedProofs.length}):</b>
+                    <div class="flex flex-wrap gap-1.5">
+                      ${submittedProofs.map(sp => `<a href="${sp.proofUrl}" target="_blank" class="px-2 py-0.5 bg-white border border-purple-200 rounded-lg text-[11px] text-purple-700 font-semibold hover:bg-purple-100">${t.proofCode} - ${sp.maHS} (${sp.hoTen})</a>`).join('')}
+                    </div>
+                  </div>
+                ` : ''}
 
                 ${uncompletedList.length > 0 ? `
                   <div class="text-xs text-amber-900 bg-amber-50/90 p-2.5 rounded-xl border border-amber-200 mb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
@@ -1959,11 +2029,17 @@ export default function FullAppPage() {
                       <button disabled class="px-4 py-2 rounded-xl font-bold text-xs bg-slate-200 text-slate-500 cursor-not-allowed flex items-center justify-center gap-1.5">
                         <i class="fa-solid fa-lock"></i> Đã khóa (Quá hạn)
                       </button>
-                    ` : `
-                      <button onclick="toggleDone('${t.id}', true)" class="px-4 py-2 rounded-xl font-bold text-xs bg-red-600 text-white shadow-md shadow-red-500/30 transition flex items-center justify-center gap-1.5">
-                        <i class="fa-solid fa-check-double"></i> Xác nhận xong
-                      </button>
-                    `
+                    ` : (
+                      t.requireProof ? `
+                        <button onclick="openProofUploadModal('${t.id}')" class="px-4 py-2 rounded-xl font-bold text-xs bg-amber-600 hover:bg-amber-700 text-white shadow-md transition flex items-center justify-center gap-1.5">
+                          <i class="fa-solid fa-camera"></i> Nộp minh chứng & Hoàn thành
+                        </button>
+                      ` : `
+                        <button onclick="toggleDone('${t.id}', true)" class="px-4 py-2 rounded-xl font-bold text-xs bg-red-600 text-white shadow-md shadow-red-500/30 transition flex items-center justify-center gap-1.5">
+                          <i class="fa-solid fa-check-double"></i> Xác nhận xong
+                        </button>
+                      `
+                    )
                   )
                 ) : `<span class="text-xs text-slate-400 italic">Không phân công cho bạn</span>`}
               </div>
@@ -1978,6 +2054,54 @@ export default function FullAppPage() {
       if (bnavBadgeWork) bnavBadgeWork.classList.toggle('hidden', !hasMyPendingTask);
     };
 
+    window.openProofUploadModal = function(taskId) {
+      const t = appData.tasks.find(x => x.id === taskId);
+      if (!t) return;
+      document.getElementById('proofModalTaskId').value = t.id;
+      document.getElementById('proofModalTaskTitle').innerText = t.tieuDe;
+      document.getElementById('proofModalAutoName').innerText = `${t.proofCode || 'MC'} - ${currentUser.username}`;
+      document.getElementById('studentProofFile').value = '';
+      document.getElementById('proofUploadModal').classList.remove('hidden');
+    };
+
+    window.closeProofUploadModal = function() {
+      document.getElementById('proofUploadModal').classList.add('hidden');
+    };
+
+    window.submitStudentProof = function() {
+      const taskId = document.getElementById('proofModalTaskId').value;
+      const fileInput = document.getElementById('studentProofFile');
+      if (!fileInput.files || fileInput.files.length === 0) {
+        alert('Vui lòng chọn ảnh hoặc file minh chứng trước khi xác nhận!');
+        return;
+      }
+
+      const file = fileInput.files[0];
+      const btn = document.getElementById('btnSubmitProof');
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang tải minh chứng...';
+      btn.disabled = true;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const proofFileData = {
+          fileName: file.name,
+          mimeType: file.type,
+          base64: e.target.result
+        };
+        window.google.script.run.withSuccessHandler(res => {
+          btn.innerHTML = '<i class="fa-solid fa-check-double"></i> Tải lên & Hoàn thành';
+          btn.disabled = false;
+          if (res.success) {
+            window.closeProofUploadModal();
+            window.loadData();
+          } else {
+            alert('Lỗi: ' + res.message);
+          }
+        }).toggleTaskStatus(taskId, currentUser.username, true, getAuthToken(), proofFileData);
+      };
+      reader.readAsDataURL(file);
+    };
+
     window.openEditTaskModal = function(taskId) {
       const t = appData.tasks.find(x => x.id === taskId);
       if (!t) return;
@@ -1986,6 +2110,9 @@ export default function FullAppPage() {
       document.getElementById('taskTitle').value = t.tieuDe;
       document.getElementById('taskDesc').value = t.noiDung || '';
       document.getElementById('taskLink').value = t.link || '';
+      document.getElementById('taskRequireProof').checked = !!t.requireProof;
+      document.getElementById('taskProofCode').value = t.proofCode || '';
+      window.toggleProofCodeInput();
       
       if (t.hanChot && t.hanChot.includes('/')) {
         const p = t.hanChot.split('/');
@@ -2012,21 +2139,31 @@ export default function FullAppPage() {
       const noiDung = document.getElementById('taskDesc').value.trim();
       const link = document.getElementById('taskLink').value.trim();
       const hanChot = document.getElementById('taskDeadline').value;
+      const requireProof = document.getElementById('taskRequireProof').checked;
+      const proofCode = document.getElementById('taskProofCode').value.trim();
+
+      if (!tieuDe) { alert('Vui lòng nhập tên công việc!'); return; }
+      if (requireProof && !proofCode) { alert('Vui lòng đặt tên Mã minh chứng!'); return; }
 
       const currentTask = appData.tasks.find(x => x.id === editingTaskId);
       const existingMap = {};
-      if (currentTask) currentTask.assignees.forEach(a => { existingMap[a.maHS] = a.done; });
+      if (currentTask) {
+        currentTask.assignees.forEach(a => {
+          existingMap[a.maHS] = { done: a.done, proofUrl: a.proofUrl || '' };
+        });
+      }
 
       const assignees = [];
       document.querySelectorAll('.student-checkbox:checked').forEach(cb => {
+        const oldState = existingMap[cb.value] || { done: false, proofUrl: '' };
         assignees.push({
           maHS: cb.value,
           hoTen: cb.getAttribute('data-name'),
-          done: existingMap[cb.value] || false
+          done: oldState.done,
+          proofUrl: oldState.proofUrl
         });
       });
 
-      if (!tieuDe) { alert('Vui lòng nhập tên công việc!'); return; }
       if (assignees.length === 0) { alert('Vui lòng chọn ít nhất 1 học sinh!'); return; }
 
       const taskObj = {
@@ -2035,6 +2172,8 @@ export default function FullAppPage() {
         noiDung: noiDung,
         link: link,
         hanChot: hanChot ? hanChot.split('-').reverse().join('/') : 'Không thời hạn',
+        requireProof: requireProof,
+        proofCode: proofCode,
         assignees: assignees
       };
 
@@ -2068,7 +2207,10 @@ export default function FullAppPage() {
     };
 
     window.toggleDone = function(taskId, isChecked) {
-      window.google.script.run.withSuccessHandler(res => { if (res.success) window.loadData(); }).toggleTaskStatus(taskId, currentUser.username, isChecked, getAuthToken());
+      window.google.script.run.withSuccessHandler(res => {
+        if (res.success) window.loadData();
+        else alert('Lỗi: ' + res.message);
+      }).toggleTaskStatus(taskId, currentUser.username, isChecked, getAuthToken());
     };
 
     window.deleteTaskAction = function(taskId) {
@@ -2076,7 +2218,7 @@ export default function FullAppPage() {
         window.google.script.run.withSuccessHandler(res => { if (res.success) window.loadData(); }).deleteTask(taskId, getAuthToken());
       }
     };
-
+    
     // ================= ĐIỂM CỘNG / TRỪ =================
     window.switchBonusSubView = function(view) {
       currentBonusSubView = view;
