@@ -2532,6 +2532,8 @@ export default function FullAppPage() {
       }
     };
 
+    
+
     // ================= VI PHẠM & NỀ NẾP =================
     window.switchViolationSubView = function(view) {
       currentVpSubView = view;
@@ -3307,4 +3309,78 @@ export default function FullAppPage() {
   }, []);
 
   return <div dangerouslySetInnerHTML={{ __html: RAW_BODY_HTML }} />;
+}
+
+// ================= NHẬN DIỆN ẢNH THỜI KHÓA BIỂU TỰ ĐỘNG BẰNG AI =================
+export async function scanTKBImageWithAI(base64DataUrl, mimeType, authToken) {
+  try {
+    enforceRole(authToken, 'HOC_TAP');
+    const apiKey = process.env.GEMINI_API_KEY;
+    if (!apiKey) {
+      return { success: false, message: 'Chưa cấu hình GEMINI_API_KEY trong phần Environment Variables của Vercel!' };
+    }
+
+    const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
+
+    const prompt = `Bạn là trợ lý nhận diện Thời Khóa Biểu. Hãy đọc bảng thời khóa biểu trong ảnh (gồm Buổi sáng và Buổi chiều, từ Thứ 2 đến Thứ 7/Chủ Nhật) và trả về DUY NHẤT một chuỗi JSON chuẩn (không có markdown \`\`\`json) theo đúng cấu trúc:
+[
+  { "id": "S1", "cols": ["Thứ 2", "Thứ 3", "Thứ 4", "Thứ 5", "Thứ 6", "Thứ 7", "CN"] },
+  { "id": "S2", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "S3", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "S4", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "S5", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "C1", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "C2", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "C3", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "C4", "cols": ["...", "...", "...", "...", "...", "...", ""] },
+  { "id": "C5", "cols": ["...", "...", "...", "...", "...", "...", ""] }
+]
+Quy tắc chuẩn hóa tên môn học cho gọn đẹp:
+- S1..S5 là Tiết 1..5 Buổi sáng; C1..C5 là Tiết 1..5 Buổi chiều.
+- Mỗi mảng "cols" bắt buộc có đúng 7 phần tử chuỗi tương ứng từ Thứ 2 đến Chủ Nhật. Ô nào trống thì để chuỗi rỗng "".
+- Tự động viết gọn tên môn:
+  + "CHAOCO" -> "Chào cờ"
+  + "Hoạt động trải nghiệm, hướng nghiệp" -> "HĐTN-HN"
+  + "Giáo dục kinh tế và pháp luật" -> "GDKT&PL"
+  + "Giáo dục thể chất" -> "GDTC"
+  + "Giáo dục quốc phòng và an ninh" -> "GDQP&AN"
+  + "Nội dung giáo dục của địa phương" -> "GDĐP"
+  + "Ngoại ngữ" -> "Tiếng Anh"
+  + "Toán học" -> "Toán"
+  + Các môn khác (Ngữ văn, Vật lí, Hóa học, Sinh học, Lịch sử, Địa lí, Công nghệ, Tin học, Sinh hoạt) giữ nguyên tên.`;
+
+    const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${apiKey}`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({
+        contents: [{
+          parts: [
+            { text: prompt },
+            { inline_data: { mime_type: mimeType || 'image/png', data: base64Data } }
+          ]
+        }],
+        generationConfig: {
+          temperature: 0.1,
+          responseMimeType: "application/json"
+        }
+      })
+    });
+
+    const result = await response.json();
+    if (!response.ok) {
+      return { success: false, message: result?.error?.message || 'Lỗi gọi Gemini API' };
+    }
+
+    const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
+    const cleanJson = rawText.replace(/```json|```/g, '').trim();
+    const parsedGrid = JSON.parse(cleanJson);
+
+    if (!Array.isArray(parsedGrid) || parsedGrid.length === 0) {
+      return { success: false, message: 'Không nhận diện được dữ liệu bảng từ ảnh!' };
+    }
+
+    return { success: true, grid: parsedGrid };
+  } catch (err) {
+    return { success: false, message: 'Lỗi phân tích ảnh: ' + err.message };
+  }
 }
