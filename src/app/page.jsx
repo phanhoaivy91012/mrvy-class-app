@@ -1804,25 +1804,29 @@ export default function FullAppPage() {
       const compact = s.replace(/\s+/g, '');
       if (!compact || compact.length < 2) return '';
 
-      if (compact.includes('chaoco') || compact.includes('cha0c0') || s.includes('chao co')) return 'Chào cờ';
+      if (compact.includes('chaoco') || compact.includes('cha0c0') || s.includes('chao co') || compact.includes('chao')) return 'Chào cờ';
       if (s.includes('sinh hoat') || compact.includes('sinhhoat') || compact.includes('shl')) return 'Sinh hoạt';
-      if (s.includes('trai nghiem') || s.includes('huong nghiep') || s.includes('hoat dong') || compact.includes('hdtn')) return 'HĐTN-HN';
-      if (s.includes('kinh te') || s.includes('phap luat') || compact.includes('gdkt')) return 'GDKT&PL';
-      if (s.includes('the chat') || s.includes('the duc') || compact.includes('gdtc')) return 'GDTC';
-      if (s.includes('quoc phong') || s.includes('an ninh') || compact.includes('gdqp')) return 'GDQP&AN';
-      if (s.includes('dia phuong') || s.includes('noi dung giao duc') || compact.includes('gddp')) return 'GDĐP';
-      if (s.includes('ngoai ngu') || s.includes('tieng anh') || compact.includes('ngoaingu')) return 'Tiếng Anh';
-      if (s.includes('toan')) return 'Toán';
-      if (s.includes('ngu van') || /\bvan\b/.test(s)) return 'Ngữ văn';
-      if (s.includes('vat li') || s.includes('vat ly') || compact.includes('vatli') || compact.includes('vatly')) return 'Vật lí';
-      if (s.includes('hoa hoc') || /\bhoa\b/.test(s)) return 'Hóa học';
-      if (s.includes('sinh hoc')) return 'Sinh học';
-      if (s.includes('lich su') || compact.includes('lichsu')) return 'Lịch sử';
-      if (s.includes('dia li') || s.includes('dia ly') || compact.includes('diali') || compact.includes('dialy') || /\bdia\b/.test(s)) return 'Địa lí';
-      if (s.includes('cong nghe') || compact.includes('congnghe')) return 'Công nghệ';
-      if (s.includes('tin hoc') || /\btin\b/.test(s)) return 'Tin học';
+      if (
+        s.includes('trai nghiem') || s.includes('huong nghiep') || s.includes('hoat dong') ||
+        compact.includes('hdtn') || compact.includes('nghiem') || compact.includes('huong') || compact.includes('hoatdong')
+      ) return 'HĐTN-HN';
+      if (s.includes('kinh te') || s.includes('phap luat') || compact.includes('gdkt') || compact.includes('kinhte') || compact.includes('phapluat')) return 'GDKT&PL';
+      if (s.includes('the chat') || s.includes('the duc') || compact.includes('gdtc') || compact.includes('thechat')) return 'GDTC';
+      if (s.includes('quoc phong') || s.includes('an ninh') || compact.includes('gdqp') || compact.includes('quocphong')) return 'GDQP&AN';
+      if (s.includes('dia phuong') || s.includes('noi dung') || compact.includes('gddp') || compact.includes('diaphuong')) return 'GDĐP';
+      if (s.includes('ngoai ngu') || s.includes('tieng anh') || compact.includes('ngoaingu') || compact.includes('ngoai')) return 'Tiếng Anh';
+      if (s.includes('toan') || compact.includes('toan') || compact.includes('t0an')) return 'Toán';
+      if (s.includes('ngu van') || /\bvan\b/.test(s) || compact.includes('nguvan')) return 'Ngữ văn';
+      if (s.includes('vat li') || s.includes('vat ly') || compact.includes('vatli') || compact.includes('vatly') || compact.includes('vatl') || /\bvat\b/.test(s)) return 'Vật lí';
+      if (s.includes('hoa hoc') || /\bhoa\b/.test(s) || compact.includes('hoahoc')) return 'Hóa học';
+      if (s.includes('sinh hoc') || compact.includes('sinhhoc')) return 'Sinh học';
+      if (s.includes('lich su') || compact.includes('lichsu') || compact.includes('lich')) return 'Lịch sử';
+      if (s.includes('dia li') || s.includes('dia ly') || compact.includes('diali') || compact.includes('dialy') || compact.includes('dial') || /\bdia\b/.test(s) || compact.includes('ia1i') || compact.includes('iali')) return 'Địa lí';
+      if (s.includes('cong nghe') || compact.includes('congnghe') || compact.includes('cong')) return 'Công nghệ';
+      if (s.includes('tin hoc') || /\btin\b/.test(s) || compact.includes('tinhoc')) return 'Tin học';
 
-      return '';
+      // Nếu ô chắc chắn có chữ nhưng OCR đọc hơi lạ, giữ lại text gốc đã làm sạch thay vì xóa trắng
+      return rawText.trim().split('\n')[0].substring(0, 18);
     }
 
     // CÁCH 1: DÁN TRỰC TIẾP TỪ EXCEL / WORD (0.5 GIÂY - CHÍNH XÁC 100%)
@@ -2012,8 +2016,8 @@ export default function FullAppPage() {
           { id: 'C4', ...cRows[3] }
         ];
 
-        // 3. GHÉP TOÀN BỘ CÁC Ô CÓ CHỮ THÀNH 1 ẢNH DUY NHẤT ĐỂ QUÉT 1 LẦN TRONG 3 GIÂY!
-        // Mỗi ô có chữ được cắt ra, dàn thành 1 dòng ngang và xếp chồng theo thứ tự
+       
+    // 3. LỌC Ô CÓ CHỮ VỚI ĐỘ NHẠY CAO (KHÔNG BỎ SÓT CHỮ NGẮN NHƯ "VẬT LÍ", "ĐỊA LÍ")
         const activeCells = [];
         for (let rIdx = 0; rIdx < allRowDefs.length; rIdx++) {
           const r = allRowDefs[rIdx];
@@ -2022,62 +2026,63 @@ export default function FullAppPage() {
 
           for (let cIdx = 0; cIdx < 6; cIdx++) {
             const cw = colBounds[cIdx].x2 - colBounds[cIdx].x1;
-            const sx = colBounds[cIdx].x1 + 5;
-            const sy = r.y1 + 3;
-            const sw = Math.max(10, cw - 10);
-            const sh = Math.max(10, rh - 6);
+            const sx = colBounds[cIdx].x1 + 6;
+            const sy = r.y1 + 4;
+            const sw = Math.max(10, cw - 12);
+            const sh = Math.max(10, rh - 8);
 
-            // Đếm điểm ảnh đen xem ô có chữ không
+            // Quét vùng trung tâm của ô (nơi chứa chữ) từng pixel một để không bao giờ sót chữ ngắn
             let darkCount = 0;
-            for (let y = sy + 3; y < sy + sh - 3; y += 2) {
-              for (let x = sx + 4; x < sx + sw - 4; x += 2) {
+            const checkY1 = sy + Math.floor(sh * 0.15);
+            const checkY2 = sy + Math.floor(sh * 0.85);
+            const checkX1 = sx + Math.floor(sw * 0.12);
+            const checkX2 = sx + Math.floor(sw * 0.88);
+
+            for (let y = checkY1; y < checkY2; y++) {
+              for (let x = checkX1; x < checkX2; x++) {
                 const idx = (y * W + x) * 4;
-                if (px[idx] < 185 && px[idx + 1] < 185 && px[idx + 2] < 185) darkCount++;
+                if (px[idx] < 200 && px[idx + 1] < 200 && px[idx + 2] < 200) darkCount++;
               }
             }
-            if (darkCount > 18) {
+            // Chỉ cần có hơn 25 điểm ảnh tối trong vùng trung tâm là đưa vào đọc
+            if (darkCount > 25) {
               activeCells.push({ rIdx, cIdx, id: r.id, sx, sy, sw, sh });
             }
           }
         }
 
-        // Tạo 1 tấm ảnh lớn xếp các ô theo lưới 1 cột, mỗi ô có chiều cao cố định 110px
-        const slotH = 110;
-        const slotW = 420;
-        const sheetCanvas = document.createElement('canvas');
-        sheetCanvas.width = slotW;
-        sheetCanvas.height = Math.max(110, activeCells.length * slotH);
-        const sCtx = sheetCanvas.getContext('2d');
-        sCtx.fillStyle = '#ffffff';
-        sCtx.fillRect(0, 0, sheetCanvas.width, sheetCanvas.height);
-
-        activeCells.forEach((cell, idx) => {
-          const topY = idx * slotH;
-          // Vẽ mã đánh dấu rõ nét ở đầu dòng (VD: 101, 102...) để đối chiếu dòng
-          const scale = Math.min((slotW - 40) / cell.sw, (slotH - 16) / cell.sh, 1.8);
-          const dw = Math.round(cell.sw * scale);
-          const dh = Math.round(cell.sh * scale);
-          const dx = Math.round((slotW - dw) / 2);
-          const dy = topY + Math.round((slotH - dh) / 2);
-          sCtx.drawImage(imgElement, cell.sx, cell.sy, cell.sw, cell.sh, dx, dy, dw, dh);
-        });
-
-        // Chạy nhận diện siêu tốc theo từng dải ô bằng đúng 1 Worker duy nhất
         const worker = await window.Tesseract.createWorker('vie');
         await worker.setParameters({ tessedit_pageseg_mode: '6' });
 
         const resultGrid = allRowDefs.map(r => ({ id: r.id, cols: ['', '', '', '', '', '', ''] }));
         const singleCanvas = document.createElement('canvas');
-        singleCanvas.width = slotW;
-        singleCanvas.height = slotH;
         const singleCtx = singleCanvas.getContext('2d');
 
         for (let i = 0; i < activeCells.length; i++) {
           const cell = activeCells[i];
           btn.innerHTML = `<i class="fa-solid fa-bolt"></i> Đang đọc ô ${i + 1}/${activeCells.length}...`;
+
+          const scale = 2.2;
+          const pad = 24;
+          const cw = Math.round(cell.sw * scale);
+          const ch = Math.round(cell.sh * scale);
+          singleCanvas.width = cw + pad * 2;
+          singleCanvas.height = ch + pad * 2;
+
           singleCtx.fillStyle = '#ffffff';
-          singleCtx.fillRect(0, 0, slotW, slotH);
-          singleCtx.drawImage(sheetCanvas, 0, i * slotH, slotW, slotH, 0, 0, slotW, slotH);
+          singleCtx.fillRect(0, 0, singleCanvas.width, singleCanvas.height);
+          singleCtx.drawImage(imgElement, cell.sx, cell.sy, cell.sw, cell.sh, pad, pad, cw, ch);
+
+          // Làm nét chữ đen và xóa vệt kẻ ngang nếu có dính ở sát mép trên/dưới
+          const imgData = singleCtx.getImageData(0, 0, singleCanvas.width, singleCanvas.height);
+          const d = imgData.data;
+          for (let p = 0; p < d.length; p += 4) {
+            const gray = (d[p] + d[p + 1] + d[p + 2]) / 3;
+            const val = gray < 195 ? 0 : 255;
+            d[p] = d[p + 1] = d[p + 2] = val;
+          }
+          singleCtx.putImageData(imgData, 0, 0);
+
           const { data: { text } } = await worker.recognize(singleCanvas);
           resultGrid[cell.rIdx].cols[cell.cIdx] = normalizeSubjectFromText(text);
         }
@@ -2109,14 +2114,12 @@ export default function FullAppPage() {
       reader.onload = function(e) {
         const img = new Image();
         img.onload = function() {
-          // Chạy trực tiếp bộ quét định vị 2 thanh tiêu đề xanh xám ngay lập tức, không phải chờ server AI timeout nữa!
           runFastOnePassOCR(img, btn, oldHtml, input);
         };
         img.src = e.target.result;
       };
       reader.readAsDataURL(file);
     };
-    
     // ================= CÔNG VIỆC =================
     window.renderStudentsForModal = function() {
       const container = document.getElementById('studentCheckList');
