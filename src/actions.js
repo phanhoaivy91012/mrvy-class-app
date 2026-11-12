@@ -655,14 +655,15 @@ Quy tắc:
       }
     };
 
-    // Danh sách 6 nhánh model từ nhẹ (lite - ít người dùng, không bị quá tải) đến cao
+    /// Chỉ sử dụng thế hệ 3.x và bản Pro/Latest đời mới nhất, loại bỏ hoàn toàn 2.x
     const modelsToTry = [
       'gemini-3.0-flash-lite',
-      'gemini-3.8-flash-lite',
-      'gemini-2.5-flash-lite',
       'gemini-3.0-flash',
+      'gemini-3.0-pro',
       'gemini-3.8-flash',
-      'gemini-3.0-pro'
+      'gemini-3.8-pro',
+      'gemini-flash-latest',
+      'gemini-pro-latest'
     ];
 
     let result = null;
