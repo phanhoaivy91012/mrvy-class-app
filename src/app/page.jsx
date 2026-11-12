@@ -244,12 +244,17 @@ const RAW_BODY_HTML = `
             </div>
           </div>
 
-          <div class="bg-white p-3 sm:p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
-            <div class="flex items-center justify-between border-b border-slate-100 pb-2">
+          <div id="tkbExportCard" class="bg-white p-3 sm:p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
+            <div class="flex flex-wrap items-center justify-between gap-2 border-b border-slate-100 pb-2">
               <h3 class="font-bold text-slate-800 text-sm sm:text-base flex items-center gap-2">
                 <i class="fa-solid fa-clock text-amber-500"></i> Thời Khóa Biểu Tuần
               </h3>
-              <span class="text-[11px] text-slate-400 italic">Nhập môn (Enter xuống dòng tự động tô đỏ chữ dòng 2)</span>
+              <div class="flex items-center gap-3">
+                <span class="hidden sm:inline text-[11px] text-slate-400 italic">Nhập môn (Enter xuống dòng tự động tô đỏ chữ dòng 2)</span>
+                <button type="button" onclick="exportTKBAndNotesImages()" id="btnExportTKBImg" class="bg-sky-600 hover:bg-sky-700 text-white font-bold px-3.5 py-1.5 rounded-xl text-xs shadow-sm transition flex items-center gap-1.5">
+                  <i class="fa-solid fa-camera"></i> Xuất ảnh
+                </button>
+              </div>
             </div>
 
             <div class="overflow-x-auto">
@@ -1904,6 +1909,161 @@ export default function FullAppPage() {
       }).saveTKBPackage(appData.tkbData.grid, appData.tkbData.notes, getAuthToken());
     };
 
+window.exportTKBAndNotesImages = async function() {
+      const btn = document.getElementById('btnExportTKBImg');
+      const oldHtml = btn ? btn.innerHTML : '';
+      if (btn) {
+        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xuất 2 trang ảnh...';
+        btn.disabled = true;
+      }
+
+      try {
+        // Tự động nạp thư viện html2canvas để chụp DOM ra ảnh PNG chất lượng cao
+        if (!window.html2canvas) {
+          await new Promise((resolve, reject) => {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/html2canvas@1.4.1/dist/html2canvas.min.js';
+            s.onload = resolve;
+            s.onerror = reject;
+            document.head.appendChild(s);
+          });
+        }
+
+        const slogan = (appData.appConfig && appData.appConfig.headerSlogan) ? appData.appConfig.headerSlogan : '10A14 - Đoàn Kết - Học Tốt';
+        const brandTitle = (appData.appConfig && appData.appConfig.brandTitle) ? appData.appConfig.brandTitle : 'MR Vy';
+        const todayStr = document.getElementById('currentDateBadge') ? document.getElementById('currentDateBadge').innerText : '';
+
+        // ================= TẠO TRANG 1: THỜI KHÓA BIỂU + CHÚ THÍCH BÊN DƯỚI =================
+        const page1Wrap = document.createElement('div');
+        page1Wrap.style.cssText = 'position:fixed; left:-9999px; top:0; width:1150px; background:#ffffff; padding:28px 32px; font-family:Arial,sans-serif; color:#1e293b; z-index:-1;';
+
+        const tkbTableOrig = document.querySelector('#tblFullTKBBody')?.closest('table');
+        const tkbTableClone = tkbTableOrig ? tkbTableOrig.cloneNode(true) : null;
+        if (tkbTableClone) {
+          tkbTableClone.style.width = '100%';
+          tkbTableClone.querySelectorAll('.sticky').forEach(el => el.classList.remove('sticky'));
+        }
+
+        const legendItems = [
+          { code: 'Chào cờ / SH', desc: 'Chào cờ đầu tuần / Sinh hoạt lớp' },
+          { code: 'HĐTN-HN', desc: 'Hoạt động trải nghiệm, hướng nghiệp' },
+          { code: 'GDKT&PL', desc: 'Giáo dục kinh tế và pháp luật' },
+          { code: 'GDTC', desc: 'Giáo dục thể chất (Thể dục)' },
+          { code: 'GDQP&AN', desc: 'Giáo dục quốc phòng và an ninh' },
+          { code: 'GDĐP', desc: 'Nội dung giáo dục của địa phương' }
+        ];
+
+        page1Wrap.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #19376D; padding-bottom:12px; margin-bottom:16px;">
+            <div>
+              <div style="font-size:22px; font-weight:900; color:#19376D; text-transform:uppercase; letter-spacing:0.5px;">📅 THỜI KHÓA BIỂU TUẦN — ${slogan}</div>
+              <div style="font-size:12px; color:#64748b; font-weight:bold; margin-top:4px;">Hệ thống quản lý lớp ${brandTitle} • Cập nhật: ${todayStr}</div>
+            </div>
+            <div style="background:#059669; color:#ffffff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:10px;">TRANG 1 / 2: THỜI KHÓA BIỂU</div>
+          </div>
+          <div id="exportTableSlot"></div>
+          <div style="margin-top:18px; background:#f8fafc; border:1px solid #cbd5e1; border-radius:14px; padding:14px 18px;">
+            <div style="font-size:12px; font-weight:800; color:#0f172a; text-transform:uppercase; margin-bottom:8px;">
+              📌 Chú thích viết tắt & Ký hiệu trên Thời Khóa Biểu:
+            </div>
+            <div style="display:grid; grid-template-columns:repeat(3, 1fr); gap:8px 16px; font-size:12px; color:#334155;">
+              ${legendItems.map(item => `<div><b style="color:#19376D;">• ${item.code}:</b> ${item.desc}</div>`).join('')}
+            </div>
+            <div style="margin-top:10px; padding-top:8px; border-top:1px dashed #cbd5e1; display:flex; gap:24px; font-size:11px; color:#475569; font-weight:bold;">
+              <span>🟥 <b style="color:#dc2626;">Chữ đỏ nghiêng (Dòng 2 trong ô):</b> Ghi chú dặn dò / Kiểm tra / Học bù</span>
+              <span>🟩 <b style="color:#16a34a;">Cột tô nền xanh lá:</b> Ngày học hiện tại trong tuần</span>
+            </div>
+          </div>
+        `;
+        document.body.appendChild(page1Wrap);
+        if (tkbTableClone) page1Wrap.querySelector('#exportTableSlot').appendChild(tkbTableClone);
+
+        // ================= TẠO TRANG 2: GHI CHÚ VÀ CÔNG VIỆC ĐỘC LẬP =================
+        const page2Wrap = document.createElement('div');
+        page2Wrap.style.cssText = 'position:fixed; left:-9999px; top:0; width:1150px; background:#ffffff; padding:28px 32px; font-family:Arial,sans-serif; color:#1e293b; z-index:-1;';
+
+        const truongNotes = (appData.tkbData?.notes?.truong) || [];
+        const nhaNotes = (appData.tkbData?.notes?.nha) || [];
+
+        const buildNotesHtml = (list, emptyText, accentColor, bgBox) => {
+          if (!list || list.length === 0) {
+            return `<div style="padding:18px; text-align:center; color:#94a3b8; font-style:italic; font-size:13px;">${emptyText}</div>`;
+          }
+          return list.map((item, idx) => `
+            <div style="display:flex; align-items:center; gap:10px; background:#ffffff; padding:10px 14px; border-radius:10px; border:1px solid ${accentColor}; margin-bottom:8px;">
+              <span style="display:inline-flex; width:22px; height:22px; border-radius:6px; align-items:center; justify-content:center; font-size:12px; font-weight:bold; background:${item.done ? '#10b981' : bgBox}; color:${item.done ? '#ffffff' : '#334155'};">
+                ${item.done ? '✓' : (idx + 1)}
+              </span>
+              <span style="font-size:13px; font-weight:600; color:${item.done ? '#94a3b8' : '#1e293b'}; text-decoration:${item.done ? 'line-through' : 'none'};">
+                ${item.text || ''}
+              </span>
+            </div>
+          `).join('');
+        };
+
+        page2Wrap.innerHTML = `
+          <div style="display:flex; justify-content:space-between; align-items:center; border-bottom:3px solid #19376D; padding-bottom:12px; margin-bottom:20px;">
+            <div>
+              <div style="font-size:22px; font-weight:900; color:#19376D; text-transform:uppercase; letter-spacing:0.5px;">📝 BẢNG GHI CHÚ & CÔNG VIỆC TRONG TUẦN — ${slogan}</div>
+              <div style="font-size:12px; color:#64748b; font-weight:bold; margin-top:4px;">Hệ thống quản lý lớp ${brandTitle} • Ngày xuất: ${todayStr}</div>
+            </div>
+            <div style="background:#7c3aed; color:#ffffff; font-weight:800; font-size:12px; padding:6px 14px; border-radius:10px;">TRANG 2 / 2: GHI CHÚ & CÔNG VIỆC</div>
+          </div>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:20px;">
+            <div style="background:#eff6ff; border:2px solid #bfdbfe; border-radius:16px; padding:16px;">
+              <div style="font-size:15px; font-weight:800; color:#1e3a8a; text-transform:uppercase; border-bottom:2px solid #bfdbfe; padding-bottom:8px; margin-bottom:12px;">
+                🏫 CÔNG VIỆC & GHI CHÚ Ở TRƯỜNG (${truongNotes.length})
+              </div>
+              ${buildNotesHtml(truongNotes, 'Chưa có ghi chú công việc ở trường.', '#bfdbfe', '#dbeafe')}
+            </div>
+
+            <div style="background:#faf5ff; border:2px solid #e9d5ff; border-radius:16px; padding:16px;">
+              <div style="font-size:15px; font-weight:800; color:#581c87; text-transform:uppercase; border-bottom:2px solid #e9d5ff; padding-bottom:8px; margin-bottom:12px;">
+                🏠 CÔNG VIỆC & GHI CHÚ Ở NHÀ (${nhaNotes.length})
+              </div>
+              ${buildNotesHtml(nhaNotes, 'Chưa có ghi chú công việc ở nhà.', '#e9d5ff', '#f3e8ff')}
+            </div>
+          </div>
+        `;
+        document.body.appendChild(page2Wrap);
+
+        // Chụp Trang 1 và Trang 2 thành 2 file ảnh PNG độ phân giải 2x
+        const canvas1 = await window.html2canvas(page1Wrap, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+        const canvas2 = await window.html2canvas(page2Wrap, { scale: 2, backgroundColor: '#ffffff', useCORS: true });
+
+        document.body.removeChild(page1Wrap);
+        document.body.removeChild(page2Wrap);
+
+        const dateTag = new Date().toISOString().slice(0, 10).split('-').reverse().join('-');
+
+        // Tải xuống Trang 1: Thời Khóa Biểu + Chú thích
+        const link1 = document.createElement('a');
+        link1.download = `Trang1_ThoiKhoaBieu_${dateTag}.png`;
+        link1.href = canvas1.toDataURL('image/png');
+        document.body.appendChild(link1);
+        link1.click();
+        document.body.removeChild(link1);
+
+        // Tải xuống Trang 2: Ghi chú và Công việc độc lập (cách 400ms để trình duyệt cho phép tải 2 file liên tiếp)
+        await new Promise(r => setTimeout(r, 400));
+        const link2 = document.createElement('a');
+        link2.download = `Trang2_GhiChuCongViec_${dateTag}.png`;
+        link2.href = canvas2.toDataURL('image/png');
+        document.body.appendChild(link2);
+        link2.click();
+        document.body.removeChild(link2);
+
+      } catch (err) {
+        alert('Lỗi xuất ảnh: ' + err.message);
+      } finally {
+        if (btn) {
+          btn.innerHTML = oldHtml;
+          btn.disabled = false;
+        }
+      }
+    };
+    
     
   function removeVN(str) {
       return String(str || '')
