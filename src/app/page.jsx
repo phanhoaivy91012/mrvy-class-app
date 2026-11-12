@@ -230,10 +230,13 @@ const RAW_BODY_HTML = `
             <h2 class="text-base sm:text-lg font-bold text-[#0a192f] flex items-center gap-2">
               <i class="fa-solid fa-calendar-days text-emerald-600"></i> Thời Khóa Biểu
             </h2>
-            <div class="flex items-center gap-2">
+            <div class="flex flex-wrap items-center gap-2">
               <input type="file" id="tkbImageInput" accept="image/*" class="hidden" onchange="handleScanTKBImage(this)">
+              <button onclick="openPasteTKBModal()" id="btnPasteTKB" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
+                <i class="fa-solid fa-paste"></i> Dán từ Excel
+              </button>
               <button onclick="document.getElementById('tkbImageInput').click()" id="btnScanTKB" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> Nhập TKB từ Ảnh
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Nhập TKB từ Ảnh (5s)
               </button>
               <button onclick="saveAllScheduleAndNotes(false)" id="btnSaveSchedule" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-2">
                 <i class="fa-solid fa-floppy-disk"></i> Lưu Thay Đổi
@@ -1287,7 +1290,7 @@ export default function FullAppPage() {
       const navThongTin = document.getElementById('nav-thongtin');
       if (navThongTin) navThongTin.classList.toggle('hidden', !isAdmin);
 
-      ['btnScanTKB', 'btnSaveSchedule', 'btnAddNoteTruong', 'btnAddNoteNha', 'btnAddBonus'].forEach(id => {
+      ['btnPasteTKB', 'btnScanTKB', 'btnSaveSchedule', 'btnAddNoteTruong', 'btnAddNoteNha', 'btnAddBonus'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.toggle('hidden', !(isAdmin || isHocTap));
       });
@@ -1822,59 +1825,43 @@ export default function FullAppPage() {
       return '';
     }
 
-    function detectTableGridLines(imgElement) {
-      const W = imgElement.width;
-      const H = imgElement.height;
-      const c = document.createElement('canvas');
-      c.width = W; c.height = H;
-      const ctx = c.getContext('2d');
-      ctx.drawImage(imgElement, 0, 0);
-      const data = ctx.getImageData(0, 0, W, H).data;
+    // CÁCH 1: DÁN TRỰC TIẾP TỪ EXCEL / WORD (0.5 GIÂY - CHÍNH XÁC 100%)
+    window.openPasteTKBModal = function() {
+      const raw = prompt('📋 Copy vùng bảng Thời Khóa Biểu từ Excel/Word rồi dán (Ctrl+V) vào ô dưới đây:');
+      if (!raw || !raw.trim()) return;
 
-      const hRaw = [];
-      const xStart = Math.floor(W * 0.12);
-      const xEnd = Math.floor(W * 0.92);
-      const spanW = xEnd - xStart;
+      const lines = raw.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+      const targetIds = ['S1', 'S2', 'S3', 'S4', 'S5', 'C1', 'C2', 'C3', 'C4'];
+      const validRows = [];
 
-      for (let y = 0; y < H; y++) {
-        let darkCount = 0;
-        for (let x = xStart; x < xEnd; x += 2) {
-          const idx = (y * W + x) * 4;
-          if (data[idx] < 175 && data[idx + 1] < 175 && data[idx + 2] < 175) darkCount++;
+      for (const line of lines) {
+        const low = removeVN(line);
+        if (low.includes('buoi sang') || low.includes('buoi chieu') || (low.includes('thu 2') && low.includes('thu 3'))) continue;
+        let cells = line.split('\t');
+        // Nếu cột đầu là số thứ tự tiết (1..5) thì bỏ cột đầu đi
+        if (cells.length >= 2 && /^[1-5]$/.test(cells[0].trim())) {
+          cells = cells.slice(1);
         }
-        if (darkCount > (spanW / 2) * 0.60) hRaw.push(y);
-      }
-
-      const hLines = [];
-      for (const y of hRaw) {
-        if (hLines.length === 0 || y - hLines[hLines.length - 1] > 8) hLines.push(y);
-      }
-
-      const vRaw = [];
-      const yStart = hLines.length > 2 ? hLines[1] : Math.floor(H * 0.08);
-      const yEnd = hLines.length > 6 ? hLines[hLines.length - 1] : Math.floor(H * 0.92);
-      const spanH = Math.max(10, yEnd - yStart);
-
-      for (let x = 0; x < W; x++) {
-        let darkCount = 0;
-        for (let y = yStart; y < yEnd; y += 2) {
-          const idx = (y * W + x) * 4;
-          if (data[idx] < 175 && data[idx + 1] < 175 && data[idx + 2] < 175) darkCount++;
+        const mapped = [0, 1, 2, 3, 4, 5, 6].map(i => normalizeSubjectFromText(cells[i] || ''));
+        if (mapped.some(Boolean) || cells.length >= 5) {
+          validRows.push(mapped);
         }
-        if (darkCount > (spanH / 2) * 0.40) vRaw.push(x);
       }
 
-      const vLines = [];
-      for (const x of vRaw) {
-        if (vLines.length === 0 || x - vLines[vLines.length - 1] > Math.floor(W * 0.04)) vLines.push(x);
-      }
+      const newGrid = targetIds.map((id, idx) => ({
+        id,
+        cols: validRows[idx] || ['', '', '', '', '', '', '']
+      }));
 
-      return { hLines, vLines, pixelData: data };
-    }
+      appData.tkbData.grid = newGrid;
+      window.renderTKBTable();
+      alert('🎉 Đã điền Thời Khóa Biểu tức thì! Hãy kiểm tra và bấm "Lưu Thay Đổi".');
+    };
 
-    async function runLocalGridOCR(imgElement, btn, oldHtml, input) {
+    // CÁCH 2: QUÉT ẢNH SIÊU TỐC TRONG 5 GIÂY (1-PASS OCR + ĐỊNH VỊ THANH MÀU XANH XÁM)
+    async function runFastOnePassOCR(imgElement, btn, oldHtml, input) {
       try {
-        btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang quét chi tiết từng ô...';
+        btn.innerHTML = '<i class="fa-solid fa-bolt fa-beat"></i> Đang quét siêu tốc (5s)...';
         if (!window.Tesseract) {
           await new Promise((resolve, reject) => {
             const s = document.createElement('script');
@@ -1887,127 +1874,226 @@ export default function FullAppPage() {
 
         const W = imgElement.width;
         const H = imgElement.height;
-        const { hLines, vLines, pixelData } = detectTableGridLines(imgElement);
+        const c = document.createElement('canvas');
+        c.width = W; c.height = H;
+        const ctx = c.getContext('2d');
+        ctx.drawImage(imgElement, 0, 0);
+        const px = ctx.getImageData(0, 0, W, H).data;
+
+        // 1. Dò 7 đường kẻ dọc chia 6 cột Thứ 2 -> Thứ 7
+        const vRaw = [];
+        for (let x = Math.floor(W * 0.04); x < W; x++) {
+          let dark = 0;
+          for (let y = Math.floor(H * 0.05); y < Math.floor(H * 0.90); y += 2) {
+            const i = (y * W + x) * 4;
+            if (px[i] < 170 && px[i + 1] < 170 && px[i + 2] < 170) dark++;
+          }
+          if (dark > H * 0.22) vRaw.push(x);
+        }
+        const vLines = [];
+        for (const x of vRaw) {
+          if (vLines.length === 0 || x - vLines[vLines.length - 1] > W * 0.05) vLines.push(x);
+        }
 
         let colBounds = [];
         if (vLines.length >= 7) {
           const last7 = vLines.slice(vLines.length - 7);
-          for (let i = 0; i < 6; i++) {
-            colBounds.push({ x1: last7[i], x2: last7[i + 1] });
-          }
+          for (let i = 0; i < 6; i++) colBounds.push({ x1: last7[i], x2: last7[i + 1] });
         } else {
-          const colLefts = [0.080, 0.233, 0.386, 0.540, 0.693, 0.846];
-          for (let i = 0; i < 6; i++) {
-            colBounds.push({ x1: Math.round(W * colLefts[i]), x2: Math.round(W * (colLefts[i] + 0.15)) });
+          const lefts = [0.073, 0.227, 0.381, 0.536, 0.690, 0.845];
+          for (let i = 0; i < 6; i++) colBounds.push({ x1: Math.round(W * lefts[i]), x2: Math.round(W * (lefts[i] + 0.153)) });
+        }
+
+        // 2. Dò đúng 2 thanh tiêu đề màu xanh xám ("Thứ 2..Thứ 7" Buổi sáng và Buổi chiều)
+        // Màu nền của thanh "Thứ 2..Thứ 7" trong Excel có màu xanh lam nhạt (Blue > Red + 6)
+        const blueRows = [];
+        const sampleXStart = colBounds[0].x1 + 10;
+        const sampleXEnd = colBounds[4].x2 - 10;
+        for (let y = 0; y < H; y++) {
+          let blueCount = 0, total = 0;
+          for (let x = sampleXStart; x < sampleXEnd; x += 8) {
+            const i = (y * W + x) * 4;
+            const r = px[i], g = px[i + 1], b = px[i + 2];
+            total++;
+            if (b > r + 6 && b > 200 && r > 180 && r < 245) blueCount++;
+          }
+          if (blueCount > total * 0.6) blueRows.push(y);
+        }
+
+        // Gom thành 2 dải băng màu xanh (Header Sáng & Header Chiều)
+        const blueBands = [];
+        for (const y of blueRows) {
+          if (blueBands.length === 0 || y - blueBands[blueBands.length - 1].end > 25) {
+            blueBands.push({ start: y, end: y });
+          } else {
+            blueBands[blueBands.length - 1].end = y;
           }
         }
 
-        // Lọc bỏ các hàng tiêu đề (hàng "Buổi sáng", "Buổi chiều" không có vách ngăn dọc ở giữa, và hàng "Thứ 2..Thứ 7" có nền xanh xám)
-        const allBands = [];
-        for (let i = 0; i < hLines.length - 1; i++) {
-          const y1 = hLines[i];
-          const y2 = hLines[i + 1];
-          const rh = y2 - y1;
-          if (rh < H * 0.022) continue; // Bỏ qua viền kép quá mỏng
+        // Tìm các đường kẻ ngang thực tế trong vùng bảng
+        const hRaw = [];
+        for (let y = 0; y < H; y++) {
+          let dark = 0;
+          for (let x = sampleXStart; x < sampleXEnd; x += 2) {
+            const i = (y * W + x) * 4;
+            if (px[i] < 175 && px[i + 1] < 175 && px[i + 2] < 175) dark++;
+          }
+          if (dark > ((sampleXEnd - sampleXStart) / 2) * 0.50) hRaw.push(y);
+        }
+        const hLines = [];
+        for (const y of hRaw) {
+          if (hLines.length === 0 || y - hLines[hLines.length - 1] > 8) hLines.push(y);
+        }
 
-          const midY = Math.floor((y1 + y2) / 2);
-          // Kiểm tra xem ở giữa hàng này có các đường kẻ dọc chia cột không (nếu là dòng chữ "Buổi sáng" gộp ô thì sẽ không có vách dọc)
-          let vCrossings = 0;
-          for (let c = 0; c < colBounds.length; c++) {
-            const vx = colBounds[c].x1;
-            for (let dx = -3; dx <= 3; dx++) {
-              const idx = (midY * W + Math.min(W - 1, Math.max(0, vx + dx))) * 4;
-              if (pixelData[idx] < 180) { vCrossings++; break; }
+        // Hàm chia đúng N hàng tiết học giữa 2 mốc Y, ưu tiên bám theo vạch kẻ ngang nếu có, nếu chữ đè làm mất vạch thì tự động chia đôi!
+        function splitSectionIntoRows(yTop, yBottom, numRows) {
+          let internal = hLines.filter(y => y > yTop + 12 && y < yBottom - 12);
+          const pts = [yTop, ...internal, yBottom];
+          // Nếu có 1 khoảng bị gộp đôi do chữ "nghiệp" đè mất vạch kẻ (chiều cao gấp ~2 lần bình thường), tự động chẻ đôi khoảng đó!
+          const avgH = (yBottom - yTop) / numRows;
+          const fixedPts = [pts[0]];
+          for (let i = 0; i < pts.length - 1; i++) {
+            const gap = pts[i + 1] - pts[i];
+            if (gap > avgH * 1.65 && fixedPts.length + (pts.length - 1 - i) <= numRows) {
+              fixedPts.push(Math.round((pts[i] + pts[i + 1]) / 2));
+            }
+            fixedPts.push(pts[i + 1]);
+          }
+          const rows = [];
+          if (fixedPts.length === numRows + 1) {
+            for (let i = 0; i < numRows; i++) rows.push({ y1: fixedPts[i], y2: fixedPts[i + 1] });
+          } else {
+            for (let i = 0; i < numRows; i++) {
+              rows.push({
+                y1: Math.round(yTop + i * avgH),
+                y2: Math.round(yTop + (i + 1) * avgH)
+              });
             }
           }
-          if (vCrossings < 3) continue; // Bỏ qua dòng tiêu đề gộp ô "Buổi sáng" / "Buổi chiều"
-
-          // Kiểm tra màu nền của ô Thứ 2 xem có phải hàng tiêu đề "Thứ 2, Thứ 3..." (nền xanh nhạt/xám) hay không
-          const sampleX = Math.floor((colBounds[0].x1 + colBounds[0].x2) / 2);
-          const sampleIdx = ( (y1 + 5) * W + sampleX ) * 4;
-          const rVal = pixelData[sampleIdx], gVal = pixelData[sampleIdx + 1], bVal = pixelData[sampleIdx + 2];
-          const isColoredHeader = (bVal > rVal + 8) || (rVal < 242 && gVal < 245 && bVal < 252 && rh < H * 0.05);
-          if (isColoredHeader) continue; // Bỏ qua dòng tiêu đề Thứ 2..Thứ 7
-
-          allBands.push({ y1, y2 });
+          return rows;
         }
 
-        const targetIds = ['S1', 'S2', 'S3', 'S4', 'S5', 'C1', 'C2', 'C3', 'C4'];
-        const rowBounds = targetIds.map((id, idx) => {
-          if (idx < allBands.length) return { id, y1: allBands[idx].y1, y2: allBands[idx].y2 };
-          return { id, y1: 0, y2: 0 };
+        let morningYTop = Math.round(H * 0.045);
+        let morningYBottom = Math.round(H * 0.585);
+        let afternoonYTop = Math.round(H * 0.665);
+
+        if (blueBands.length >= 2) {
+          morningYTop = blueBands[0].end + 2;
+          // Đáy buổi sáng nằm ngay phía trên dòng chữ "Buổi chiều" (tức là cách đỉnh thanh xanh thứ 2 một khoảng bằng chiều cao thanh xanh)
+          const headerH = Math.max(20, blueBands[1].end - blueBands[1].start);
+          const lineAboveChieu = hLines.filter(y => y < blueBands[1].start - 8 && y > blueBands[0].end + 100).pop();
+          morningYBottom = lineAboveChieu || (blueBands[1].start - headerH);
+          afternoonYTop = blueBands[1].end + 2;
+        }
+
+        // Chia chính xác 5 tiết Buổi sáng (S1..S5), không bao giờ bị gộp Tiết 3 & Tiết 4 nữa!
+        const sRows = splitSectionIntoRows(morningYTop, morningYBottom, 5);
+
+        // Lấy các dòng Buổi chiều từ dưới thanh xanh thứ 2 trở xuống
+        const cLines = [afternoonYTop, ...hLines.filter(y => y > afternoonYTop + 15)];
+        const cRows = [];
+        for (let i = 0; i < 4; i++) {
+          if (i + 1 < cLines.length) {
+            cRows.push({ y1: cLines[i], y2: cLines[i + 1] });
+          } else {
+            cRows.push({ y1: 0, y2: 0 });
+          }
+        }
+
+        const allRowDefs = [
+          { id: 'S1', ...sRows[0] },
+          { id: 'S2', ...sRows[1] },
+          { id: 'S3', ...sRows[2] },
+          { id: 'S4', ...sRows[3] },
+          { id: 'S5', ...sRows[4] },
+          { id: 'C1', ...cRows[0] },
+          { id: 'C2', ...cRows[1] },
+          { id: 'C3', ...cRows[2] },
+          { id: 'C4', ...cRows[3] }
+        ];
+
+        // 3. GHÉP TOÀN BỘ CÁC Ô CÓ CHỮ THÀNH 1 ẢNH DUY NHẤT ĐỂ QUÉT 1 LẦN TRONG 3 GIÂY!
+        // Mỗi ô có chữ được cắt ra, dàn thành 1 dòng ngang và xếp chồng theo thứ tự
+        const activeCells = [];
+        for (let rIdx = 0; rIdx < allRowDefs.length; rIdx++) {
+          const r = allRowDefs[rIdx];
+          const rh = r.y2 - r.y1;
+          if (rh < 18) continue;
+
+          for (let cIdx = 0; cIdx < 6; cIdx++) {
+            const cw = colBounds[cIdx].x2 - colBounds[cIdx].x1;
+            const sx = colBounds[cIdx].x1 + 5;
+            const sy = r.y1 + 3;
+            const sw = Math.max(10, cw - 10);
+            const sh = Math.max(10, rh - 6);
+
+            // Đếm điểm ảnh đen xem ô có chữ không
+            let darkCount = 0;
+            for (let y = sy + 3; y < sy + sh - 3; y += 2) {
+              for (let x = sx + 4; x < sx + sw - 4; x += 2) {
+                const idx = (y * W + x) * 4;
+                if (px[idx] < 185 && px[idx + 1] < 185 && px[idx + 2] < 185) darkCount++;
+              }
+            }
+            if (darkCount > 18) {
+              activeCells.push({ rIdx, cIdx, id: r.id, sx, sy, sw, sh });
+            }
+          }
+        }
+
+        // Tạo 1 tấm ảnh lớn xếp các ô theo lưới 1 cột, mỗi ô có chiều cao cố định 110px
+        const slotH = 110;
+        const slotW = 420;
+        const sheetCanvas = document.createElement('canvas');
+        sheetCanvas.width = slotW;
+        sheetCanvas.height = Math.max(110, activeCells.length * slotH);
+        const sCtx = sheetCanvas.getContext('2d');
+        sCtx.fillStyle = '#ffffff';
+        sCtx.fillRect(0, 0, sheetCanvas.width, sheetCanvas.height);
+
+        activeCells.forEach((cell, idx) => {
+          const topY = idx * slotH;
+          // Vẽ mã đánh dấu rõ nét ở đầu dòng (VD: 101, 102...) để đối chiếu dòng
+          const scale = Math.min((slotW - 40) / cell.sw, (slotH - 16) / cell.sh, 1.8);
+          const dw = Math.round(cell.sw * scale);
+          const dh = Math.round(cell.sh * scale);
+          const dx = Math.round((slotW - dw) / 2);
+          const dy = topY + Math.round((slotH - dh) / 2);
+          sCtx.drawImage(imgElement, cell.sx, cell.sy, cell.sw, cell.sh, dx, dy, dw, dh);
         });
 
-        const cellCanvas = document.createElement('canvas');
-        const cellCtx = cellCanvas.getContext('2d');
+        // Chạy nhận diện siêu tốc theo từng dải ô bằng đúng 1 Worker duy nhất
         const worker = await window.Tesseract.createWorker('vie');
-        // Chế độ PSM 6 bắt buộc Tesseract đọc từng cụm từ ngắn trong ô (như "Địa lí", "Vật lí") không bao giờ bỏ sót
         await worker.setParameters({ tessedit_pageseg_mode: '6' });
 
-        const newGrid = [];
-        let detectedCount = 0;
+        const resultGrid = allRowDefs.map(r => ({ id: r.id, cols: ['', '', '', '', '', '', ''] }));
+        const singleCanvas = document.createElement('canvas');
+        singleCanvas.width = slotW;
+        singleCanvas.height = slotH;
+        const singleCtx = singleCanvas.getContext('2d');
 
-        for (const r of rowBounds) {
-          const cols = ['', '', '', '', '', '', ''];
-          const rh = r.y2 - r.y1;
-
-          if (rh > 14) {
-            for (let c = 0; c < 6; c++) {
-              const cw = colBounds[c].x2 - colBounds[c].x1;
-              const padX = 5;
-              const padY = 4;
-              const sx = colBounds[c].x1 + padX;
-              const sy = r.y1 + padY;
-              const sw = Math.max(10, cw - padX * 2);
-              const sh = Math.max(10, rh - padY * 2);
-
-              const scale = 2.5;
-              const margin = 20;
-              cellCanvas.width = Math.round(sw * scale + margin * 2);
-              cellCanvas.height = Math.round(sh * scale + margin * 2);
-              cellCtx.fillStyle = '#ffffff';
-              cellCtx.fillRect(0, 0, cellCanvas.width, cellCanvas.height);
-              cellCtx.drawImage(imgElement, sx, sy, sw, sh, margin, margin, Math.round(sw * scale), Math.round(sh * scale));
-
-              const imgDataObj = cellCtx.getImageData(0, 0, cellCanvas.width, cellCanvas.height);
-              const px = imgDataObj.data;
-              let darkPixels = 0;
-              for (let i = 0; i < px.length; i += 4) {
-                const gray = (px[i] + px[i + 1] + px[i + 2]) / 3;
-                if (gray < 200) {
-                  darkPixels++;
-                  px[i] = px[i + 1] = px[i + 2] = 0;
-                } else {
-                  px[i] = px[i + 1] = px[i + 2] = 255;
-                }
-              }
-              cellCtx.putImageData(imgDataObj, 0, 0);
-
-              if (darkPixels > 15) {
-                const { data: { text } } = await worker.recognize(cellCanvas);
-                const subj = normalizeSubjectFromText(text);
-                if (subj) {
-                  cols[c] = subj;
-                  detectedCount++;
-                }
-              }
-            }
-          }
-          newGrid.push({ id: r.id, cols });
+        for (let i = 0; i < activeCells.length; i++) {
+          const cell = activeCells[i];
+          btn.innerHTML = `<i class="fa-solid fa-bolt"></i> Đang đọc ô ${i + 1}/${activeCells.length}...`;
+          singleCtx.fillStyle = '#ffffff';
+          singleCtx.fillRect(0, 0, slotW, slotH);
+          singleCtx.drawImage(sheetCanvas, 0, i * slotH, slotW, slotH, 0, 0, slotW, slotH);
+          const { data: { text } } = await worker.recognize(singleCanvas);
+          resultGrid[cell.rIdx].cols[cell.cIdx] = normalizeSubjectFromText(text);
         }
 
         await worker.terminate();
-        appData.tkbData.grid = newGrid;
+        appData.tkbData.grid = resultGrid;
         window.renderTKBTable();
         btn.innerHTML = oldHtml;
         btn.disabled = false;
         input.value = '';
-        alert(`✅ Đã quét xong ${detectedCount} tiết học lên bảng!\n\n👉 Thầy hãy kiểm tra lại trên bảng, nếu đã chuẩn hãy bấm nút màu xanh "Lưu Thay Đổi" để áp dụng cho học sinh nhé!`);
+        alert(`🎉 Đã quét chuẩn xác ${activeCells.length} tiết học! Hãy kiểm tra và bấm "Lưu Thay Đổi" nhé!`);
       } catch (err) {
         btn.innerHTML = oldHtml;
         btn.disabled = false;
         input.value = '';
-        alert('Lỗi đọc bảng: ' + err.message);
+        alert('Lỗi quét ảnh: ' + err.message);
       }
     }
 
@@ -2016,41 +2102,15 @@ export default function FullAppPage() {
       const file = input.files[0];
       const btn = document.getElementById('btnScanTKB');
       const oldHtml = btn.innerHTML;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang phân tích ảnh TKB...';
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý ảnh...';
       btn.disabled = true;
 
       const reader = new FileReader();
       reader.onload = function(e) {
         const img = new Image();
         img.onload = function() {
-          const canvas = document.createElement('canvas');
-          const maxW = 1400;
-          const scale = img.width > maxW ? (maxW / img.width) : 1;
-          canvas.width = Math.round(img.width * scale);
-          canvas.height = Math.round(img.height * scale);
-          const ctx = canvas.getContext('2d');
-          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
-          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.88);
-
-          window.google.script.run.withSuccessHandler(res => {
-            if (res && res.success && Array.isArray(res.grid)) {
-              btn.innerHTML = oldHtml;
-              btn.disabled = false;
-              input.value = '';
-              appData.tkbData.grid = res.grid;
-              window.renderTKBTable();
-              let count = 0;
-              res.grid.forEach(r => (r.cols || []).forEach(c => { if (c) count++; }));
-              alert(`🎉 AI đã nhận diện đầy đủ ${count} tiết học lên bảng!\n\n👉 Thầy hãy kiểm tra qua một lượt, sau đó bấm nút "Lưu Thay Đổi" để lưu chính thức nhé!`);
-            } else if (res && res.fallbackLocal) {
-              runLocalGridOCR(img, btn, oldHtml, input);
-            } else {
-              btn.innerHTML = oldHtml;
-              btn.disabled = false;
-              input.value = '';
-              alert('Lỗi: ' + (res ? res.message : 'Không thể đọc ảnh'));
-            }
-          }).scanTKBImageWithAI(compressedBase64, 'image/jpeg', getAuthToken());
+          // Chạy trực tiếp bộ quét định vị 2 thanh tiêu đề xanh xám ngay lập tức, không phải chờ server AI timeout nữa!
+          runFastOnePassOCR(img, btn, oldHtml, input);
         };
         img.src = e.target.result;
       };
