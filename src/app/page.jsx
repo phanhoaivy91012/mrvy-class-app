@@ -1804,16 +1804,25 @@ export default function FullAppPage() {
       const compact = s.replace(/\s+/g, '');
       if (!compact || compact.length < 2) return '';
 
-      if (compact.includes('chaoco') || compact.includes('cha0c0') || s.includes('chao co') || compact.includes('chao')) return 'Chào cờ';
-      if (s.includes('sinh hoat') || compact.includes('sinhhoat') || compact.includes('shl')) return 'Sinh hoạt';
+      // 1. Ưu tiên kiểm tra GDĐP, GDKT&PL, GDQP&AN, GDTC trước để không bị trùng từ "giáo dục" / "nội dung"
+      if (
+        s.includes('dia phuong') || s.includes('noi dung') || s.includes('cua dia') ||
+        compact.includes('gddp') || compact.includes('diaphuong') || compact.includes('noidung') || compact.includes('phuong')
+      ) return 'GDĐP';
+
+      if (s.includes('kinh te') || s.includes('phap luat') || compact.includes('gdkt') || compact.includes('kinhte') || compact.includes('phapluat')) return 'GDKT&PL';
+      if (s.includes('quoc phong') || s.includes('an ninh') || compact.includes('gdqp') || compact.includes('quocphong') || compact.includes('anninh')) return 'GDQP&AN';
+      if (s.includes('the chat') || s.includes('the duc') || compact.includes('gdtc') || compact.includes('thechat')) return 'GDTC';
+
+      // 2. Hoạt động trải nghiệm, hướng nghiệp
       if (
         s.includes('trai nghiem') || s.includes('huong nghiep') || s.includes('hoat dong') ||
-        compact.includes('hdtn') || compact.includes('nghiem') || compact.includes('huong') || compact.includes('hoatdong')
+        compact.includes('hdtn') || compact.includes('trainghiem') || compact.includes('huongnghiep') || compact.includes('nghiem')
       ) return 'HĐTN-HN';
-      if (s.includes('kinh te') || s.includes('phap luat') || compact.includes('gdkt') || compact.includes('kinhte') || compact.includes('phapluat')) return 'GDKT&PL';
-      if (s.includes('the chat') || s.includes('the duc') || compact.includes('gdtc') || compact.includes('thechat')) return 'GDTC';
-      if (s.includes('quoc phong') || s.includes('an ninh') || compact.includes('gdqp') || compact.includes('quocphong')) return 'GDQP&AN';
-      if (s.includes('dia phuong') || s.includes('noi dung') || compact.includes('gddp') || compact.includes('diaphuong')) return 'GDĐP';
+
+      // 3. Các môn học cơ bản (Bắt cả lỗi OCR đọc nhầm "Địa lí" -> "Đàa lí", "Đla lí", "Đja lí")
+      if (compact.includes('chaoco') || compact.includes('cha0c0') || s.includes('chao co') || compact.includes('chao')) return 'Chào cờ';
+      if (s.includes('sinh hoat') || compact.includes('sinhhoat') || compact.includes('shl')) return 'Sinh hoạt';
       if (s.includes('ngoai ngu') || s.includes('tieng anh') || compact.includes('ngoaingu') || compact.includes('ngoai')) return 'Tiếng Anh';
       if (s.includes('toan') || compact.includes('toan') || compact.includes('t0an')) return 'Toán';
       if (s.includes('ngu van') || /\bvan\b/.test(s) || compact.includes('nguvan')) return 'Ngữ văn';
@@ -1821,11 +1830,15 @@ export default function FullAppPage() {
       if (s.includes('hoa hoc') || /\bhoa\b/.test(s) || compact.includes('hoahoc')) return 'Hóa học';
       if (s.includes('sinh hoc') || compact.includes('sinhhoc')) return 'Sinh học';
       if (s.includes('lich su') || compact.includes('lichsu') || compact.includes('lich')) return 'Lịch sử';
-      if (s.includes('dia li') || s.includes('dia ly') || compact.includes('diali') || compact.includes('dialy') || compact.includes('dial') || /\bdia\b/.test(s) || compact.includes('ia1i') || compact.includes('iali')) return 'Địa lí';
+      if (
+        s.includes('dia li') || s.includes('dia ly') || s.includes('daa li') ||
+        compact.includes('diali') || compact.includes('dialy') || compact.includes('daali') ||
+        compact.includes('d1ali') || compact.includes('dlali') || compact.includes('djali') ||
+        compact.includes('iali') || compact.includes('aali') || /^d[a-z]{1,3}li/.test(compact) || /\bdia\b/.test(s)
+      ) return 'Địa lí';
       if (s.includes('cong nghe') || compact.includes('congnghe') || compact.includes('cong')) return 'Công nghệ';
       if (s.includes('tin hoc') || /\btin\b/.test(s) || compact.includes('tinhoc')) return 'Tin học';
 
-      // Nếu ô chắc chắn có chữ nhưng OCR đọc hơi lạ, giữ lại text gốc đã làm sạch thay vì xóa trắng
       return rawText.trim().split('\n')[0].substring(0, 18);
     }
 
