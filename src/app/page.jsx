@@ -4,23 +4,25 @@ import { useEffect } from 'react';
 import * as actions from '../actions';
 
 const RAW_BODY_HTML = `
-  <!-- 1. MÀN HÌNH ĐĂNG NHẬP -->
-  <div id="loginSection" class="min-h-screen flex items-center justify-center bg-[#0a192f] px-4 py-8">
-    <div class="bg-white p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-md border border-slate-100 text-center">
-      <img id="loginAvatarImg" class="w-20 h-20 rounded-full mx-auto mb-3 object-cover border-4 border-emerald-500 shadow-lg" src="" alt="MR Vy">
-      <h2 id="loginBrandTitle" class="text-2xl font-extrabold text-slate-800 mb-0.5">MR Vy</h2>
-      <p id="loginBrandSub" class="text-xs text-slate-400 mb-6 font-semibold uppercase tracking-wider">Hệ Thống Quản Lý</p>
+  <!-- 1. MÀN HÌNH ĐĂNG NHẬP (FULL MÀN HÌNH ẢNH LỚP) -->
+  <div id="loginSection" class="min-h-screen flex items-center justify-center md:justify-end bg-[#0a192f] bg-cover bg-center bg-no-repeat px-4 sm:px-12 md:px-20 py-8 relative transition-all duration-500">
+    <!-- Lớp phủ tối nhẹ để làm nổi bật ảnh tập thể và khung đăng nhập -->
+    <div class="absolute inset-0 bg-gradient-to-t from-black/70 via-black/25 to-black/40"></div>
+    
+    <div class="relative z-10 bg-white/85 backdrop-blur-md p-6 sm:p-8 rounded-3xl shadow-2xl w-full max-w-sm border border-white/50 text-center">
+      <h2 id="loginBrandTitle" class="text-2xl sm:text-3xl font-black text-slate-900 mb-1 tracking-tight">MR Vy</h2>
+      <p id="loginBrandSub" class="text-xs text-emerald-700 mb-6 font-extrabold uppercase tracking-widest">Hệ Thống Quản Lý</p>
       
       <div class="space-y-4 text-left">
         <div>
-          <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Tên đăng nhập / Mã HS</label>
-          <input type="text" id="loginUsername" class="w-full p-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none">
+          <label class="block text-xs font-extrabold text-slate-700 uppercase mb-1">Tên đăng nhập / Mã HS</label>
+          <input type="text" id="loginUsername" class="w-full p-3 text-base bg-white/90 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-semibold shadow-inner">
         </div>
         <div>
-          <label class="block text-xs font-bold text-slate-600 uppercase mb-1">Mật khẩu</label>
-          <input type="password" id="loginPassword" class="w-full p-3 text-base border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none">
+          <label class="block text-xs font-extrabold text-slate-700 uppercase mb-1">Mật khẩu</label>
+          <input type="password" id="loginPassword" class="w-full p-3 text-base bg-white/90 border border-slate-300 rounded-xl focus:ring-2 focus:ring-emerald-500 outline-none font-semibold shadow-inner">
         </div>
-        <button onclick="handleLogin()" id="btnLoginSubmit" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-600/30 transition text-base flex items-center justify-center gap-2">
+        <button onclick="handleLogin()" id="btnLoginSubmit" class="w-full bg-emerald-600 hover:bg-emerald-700 active:scale-[0.98] text-white font-bold py-3.5 rounded-xl shadow-lg shadow-emerald-600/40 transition text-base flex items-center justify-center gap-2">
           <i class="fa-solid fa-right-to-bracket"></i> Đăng Nhập
         </button>
       </div>
@@ -143,12 +145,23 @@ const RAW_BODY_HTML = `
 
             <div class="grid grid-cols-1 md:grid-cols-2 gap-4 text-xs">
               <div class="space-y-2 bg-slate-50 p-4 rounded-2xl border">
-                <label class="block font-bold text-slate-700 uppercase"><i class="fa-solid fa-image mr-1"></i> Logo Góc Trái</label>
+                <label class="block font-bold text-slate-700 uppercase"><i class="fa-solid fa-image mr-1"></i> Logo Góc Trái (Trên Thanh Menu)</label>
                 <div class="flex items-center gap-4">
                   <img id="cfgLogoPreview" class="w-14 h-14 rounded-full object-cover border-2 border-emerald-500 shadow" src="" alt="Preview">
                   <div class="flex-1 space-y-2">
                     <input type="file" id="cfgLogoFile" accept="image/*" onchange="previewLogoFile(this)" class="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-emerald-50 file:text-emerald-700 hover:file:bg-emerald-100">
                     <input type="text" id="cfgLogoUrl" placeholder="Hoặc dán link ảnh trực tiếp..." class="w-full p-2 border rounded-xl bg-white outline-none">
+                  </div>
+                </div>
+              </div>
+
+              <div class="space-y-2 bg-slate-50 p-4 rounded-2xl border">
+                <label class="block font-bold text-slate-700 uppercase"><i class="fa-solid fa-panorama mr-1 text-blue-600"></i> Ảnh Nền Toàn Màn Hình Lúc Đăng Nhập</label>
+                <div class="flex items-center gap-4">
+                  <img id="cfgLoginBgPreview" class="w-24 h-14 rounded-xl object-cover border-2 border-blue-500 shadow bg-slate-200" src="" alt="Background Preview">
+                  <div class="flex-1 space-y-2">
+                    <input type="file" id="cfgLoginBgFile" accept="image/*" onchange="previewLoginBgFile(this)" class="w-full text-[11px] text-slate-500 file:mr-2 file:py-1.5 file:px-3 file:rounded-xl file:border-0 file:text-xs file:font-bold file:bg-blue-50 file:text-blue-700 hover:file:bg-blue-100">
+                    <input type="text" id="cfgLoginBgUrl" placeholder="Hoặc dán link ảnh nền..." class="w-full p-2 border rounded-xl bg-white outline-none">
                   </div>
                 </div>
               </div>
@@ -1320,17 +1333,35 @@ export default function FullAppPage() {
       }).getInitialData(getAuthToken());
     };
 
+   let currentLoginBgBase64 = '';
+
     window.applyAppConfig = function(cfg) {
       if (!cfg) return;
       const logo = cfg.logoUrl || 'https://ui-avatars.com/api/?name=MV&background=10b981&color=fff';
+      const loginBg = cfg.loginBgUrl || '';
       const title = cfg.brandTitle || "MR Vy";
       const sub = cfg.brandSub || "Hệ thống quản lý";
       const slogan = cfg.headerSlogan || "10A4 - Đoàn Kết - Học Tốt";
 
-      ['loginAvatarImg', 'topbarAvatarImg', 'cfgLogoPreview'].forEach(id => {
+      ['topbarAvatarImg', 'cfgLogoPreview'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.src = logo;
       });
+
+      const loginSec = document.getElementById('loginSection');
+      if (loginSec) {
+        if (loginBg) {
+          loginSec.style.backgroundImage = `url('${loginBg}')`;
+        } else {
+          loginSec.style.backgroundImage = 'none';
+        }
+      }
+
+      const bgPrev = document.getElementById('cfgLoginBgPreview');
+      if (bgPrev) {
+        bgPrev.src = loginBg || 'https://placehold.co/600x400/e2e8f0/64748b?text=Chua+co+anh+nen';
+      }
+
       ['loginBrandTitle', 'topbarBrandTitle'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.innerText = title;
@@ -1346,10 +1377,12 @@ export default function FullAppPage() {
       if (elMobSlogan) elMobSlogan.innerText = `🌟 ${slogan} 🌟`;
 
       const elInputUrl = document.getElementById('cfgLogoUrl');
+      const elInputBgUrl = document.getElementById('cfgLoginBgUrl');
       const elInputTitle = document.getElementById('cfgBrandTitle');
       const elInputSub = document.getElementById('cfgBrandSub');
       const elInputSlogan = document.getElementById('cfgHeaderSlogan');
       if (elInputUrl) elInputUrl.value = (cfg.logoUrl && !cfg.logoUrl.startsWith('data:image/')) ? cfg.logoUrl : '';
+      if (elInputBgUrl) elInputBgUrl.value = (cfg.loginBgUrl && !cfg.loginBgUrl.startsWith('data:image/')) ? cfg.loginBgUrl : '';
       if (elInputTitle) elInputTitle.value = title;
       if (elInputSub) elInputSub.value = sub;
       if (elInputSlogan) elInputSlogan.value = slogan;
@@ -1377,15 +1410,52 @@ export default function FullAppPage() {
       }
     };
 
+    window.previewLoginBgFile = function(input) {
+      if (input.files && input.files[0]) {
+        const file = input.files[0];
+        const reader = new FileReader();
+        reader.onload = function(e) {
+          const img = new Image();
+          img.onload = function() {
+            const canvas = document.createElement('canvas');
+            const ctx = canvas.getContext('2d');
+            const maxW = 1600;
+            const scale = img.width > maxW ? (maxW / img.width) : 1;
+            canvas.width = Math.round(img.width * scale);
+            canvas.height = Math.round(img.height * scale);
+            ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+            currentLoginBgBase64 = canvas.toDataURL('image/jpeg', 0.82);
+            document.getElementById('cfgLoginBgPreview').src = currentLoginBgBase64;
+          };
+          img.src = e.target.result;
+        };
+        reader.readAsDataURL(file);
+      }
+    };
+
     window.saveBrandSettings = function() {
       const title = document.getElementById('cfgBrandTitle').value.trim();
       const sub = document.getElementById('cfgBrandSub').value.trim();
       const slogan = document.getElementById('cfgHeaderSlogan').value.trim();
+      const adminEmail = document.getElementById('cfgAdminEmail') ? document.getElementById('cfgAdminEmail').value.trim() : '';
+
       let logoUrl = document.getElementById('cfgLogoUrl').value.trim();
       if (currentLogoBase64) logoUrl = currentLogoBase64;
+      else if (!logoUrl && appData.appConfig.logoUrl) logoUrl = appData.appConfig.logoUrl;
 
-      const adminEmail = document.getElementById('cfgAdminEmail') ? document.getElementById('cfgAdminEmail').value.trim() : '';
-      const configObj = { brandTitle: title, brandSub: sub, headerSlogan: slogan, logoUrl: logoUrl, adminEmail: adminEmail };
+      let loginBgUrl = document.getElementById('cfgLoginBgUrl') ? document.getElementById('cfgLoginBgUrl').value.trim() : '';
+      if (currentLoginBgBase64) loginBgUrl = currentLoginBgBase64;
+      else if (!loginBgUrl && appData.appConfig.loginBgUrl) loginBgUrl = appData.appConfig.loginBgUrl;
+
+      const configObj = {
+        brandTitle: title,
+        brandSub: sub,
+        headerSlogan: slogan,
+        logoUrl: logoUrl,
+        loginBgUrl: loginBgUrl,
+        adminEmail: adminEmail
+      };
+
       const btn = document.getElementById('btnSaveBrand');
       btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang lưu...';
       btn.disabled = true;
@@ -1393,8 +1463,10 @@ export default function FullAppPage() {
       window.google.script.run.withSuccessHandler(res => {
         btn.innerHTML = '<i class="fa-solid fa-floppy-disk"></i> Lưu Cài Đặt Giao Diện';
         btn.disabled = false;
-        if (res.success) window.loadData();
-        else alert('Lỗi: ' + res.message);
+        if (res.success) {
+          alert('Đã lưu cài đặt giao diện & ảnh nền thành công!');
+          window.loadData();
+        } else alert('Lỗi: ' + res.message);
       }).saveAppConfig(configObj, getAuthToken());
     };
 
