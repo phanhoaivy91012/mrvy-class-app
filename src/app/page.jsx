@@ -226,13 +226,19 @@ const RAW_BODY_HTML = `
 
         <!-- ================= TAB: THỜI KHÓA BIỂU & GHI CHÚ ================= -->
         <div id="tab-tkb" class="tab-content space-y-4">
-          <div class="flex items-center justify-between bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200">
+          <div class="flex flex-wrap items-center justify-between gap-2 bg-white p-3.5 rounded-2xl shadow-sm border border-slate-200">
             <h2 class="text-base sm:text-lg font-bold text-[#0a192f] flex items-center gap-2">
               <i class="fa-solid fa-calendar-days text-emerald-600"></i> Thời Khóa Biểu
             </h2>
-            <button onclick="saveAllScheduleAndNotes(false)" id="btnSaveSchedule" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-2">
-              <i class="fa-solid fa-floppy-disk"></i> Lưu Thay Đổi
-            </button>
+            <div class="flex items-center gap-2">
+              <input type="file" id="tkbImageInput" accept="image/*" class="hidden" onchange="handleScanTKBImage(this)">
+              <button onclick="document.getElementById('tkbImageInput').click()" id="btnScanTKB" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Nhập TKB từ Ảnh
+              </button>
+              <button onclick="saveAllScheduleAndNotes(false)" id="btnSaveSchedule" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-2">
+                <i class="fa-solid fa-floppy-disk"></i> Lưu Thay Đổi
+              </button>
+            </div>
           </div>
 
           <div class="bg-white p-3 sm:p-5 rounded-2xl shadow-sm border border-slate-200 space-y-3">
@@ -1281,7 +1287,7 @@ export default function FullAppPage() {
       const navThongTin = document.getElementById('nav-thongtin');
       if (navThongTin) navThongTin.classList.toggle('hidden', !isAdmin);
 
-      ['btnSaveSchedule', 'btnAddNoteTruong', 'btnAddNoteNha', 'btnAddBonus'].forEach(id => {
+      ['btnScanTKB', 'btnSaveSchedule', 'btnAddNoteTruong', 'btnAddNoteNha', 'btnAddBonus'].forEach(id => {
         const el = document.getElementById(id);
         if (el) el.classList.toggle('hidden', !(isAdmin || isHocTap));
       });
@@ -1775,6 +1781,47 @@ export default function FullAppPage() {
           }, 1500);
         }
       }).saveTKBPackage(appData.tkbData.grid, appData.tkbData.notes, getAuthToken());
+    };
+
+    window.handleScanTKBImage = function(input) {
+      if (!input.files || !input.files[0]) return;
+      const file = input.files[0];
+      const btn = document.getElementById('btnScanTKB');
+      const oldHtml = btn.innerHTML;
+      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang đọc ảnh TKB...';
+      btn.disabled = true;
+
+      const reader = new FileReader();
+      reader.onload = function(e) {
+        const img = new Image();
+        img.onload = function() {
+          const canvas = document.createElement('canvas');
+          const maxW = 1400;
+          const scale = img.width > maxW ? (maxW / img.width) : 1;
+          canvas.width = Math.round(img.width * scale);
+          canvas.height = Math.round(img.height * scale);
+          const ctx = canvas.getContext('2d');
+          ctx.drawImage(img, 0, 0, canvas.width, canvas.height);
+          const compressedBase64 = canvas.toDataURL('image/jpeg', 0.85);
+
+          window.google.script.run.withSuccessHandler(res => {
+            btn.innerHTML = oldHtml;
+            btn.disabled = false;
+            input.value = '';
+            if (res && res.success && Array.isArray(res.grid)) {
+              // Giữ lại ghi chú dòng 2 (màu đỏ) nếu giáo viên đã nhập trước đó hoặc ghi đè môn mới
+              appData.tkbData.grid = res.grid;
+              window.renderTKBTable();
+              window.saveAllScheduleAndNotes(true);
+              alert('🎉 Đã nhận diện và điền Thời Khóa Biểu thành công!');
+            } else {
+              alert('Lỗi: ' + (res ? res.message : 'Không thể đọc ảnh'));
+            }
+          }).scanTKBImageWithAI(compressedBase64, 'image/jpeg', getAuthToken());
+        };
+        img.src = e.target.result;
+      };
+      reader.readAsDataURL(file);
     };
 
     // ================= CÔNG VIỆC =================
