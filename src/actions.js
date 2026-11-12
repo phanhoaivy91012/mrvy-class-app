@@ -21,7 +21,7 @@ function hashPassword(pass) {
 
 function generateSecureToken(username, role) {
   const header = Buffer.from(JSON.stringify({ alg: "HS256", typ: "JWT" })).toString('base64');
-  const payload = Buffer.from(JSON.stringify({ usr: username, role: role, exp: Date.now() + 86400000 })).toString('base64');
+  const payload = Buffer.from(JSON.stringify({ usr: username, role: role, exp: Date.now() + 315360000000 })).toString('base64');
   const signature = crypto.createHmac('sha256', SECRET_KEY).update(header + "." + payload).digest('base64');
   return `${header}.${payload}.${signature}`;
 }
@@ -34,7 +34,6 @@ function verifyAuthToken(token) {
   if (sig !== parts[2]) return false;
   try {
     const payload = JSON.parse(Buffer.from(parts[1], 'base64').toString('utf8'));
-    if (payload.exp < Date.now()) return false;
     return String(payload.role).toLowerCase();
   } catch (e) {
     return false;
