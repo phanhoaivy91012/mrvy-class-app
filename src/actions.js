@@ -64,7 +64,7 @@ function getVNDateString() {
 }
 
 export async function getPublicAppConfig() {
-  const defaultCfg = { logoUrl: '', brandTitle: 'MR Vy', brandSub: 'Hệ thống quản lý', headerSlogan: '10A14 - Đoàn Kết - Học Tốt' };
+  const defaultCfg = { logoUrl: '', loginBgUrl: '', brandTitle: 'MR Vy', brandSub: 'Hệ thống quản lý', headerSlogan: '10A14 - Đoàn Kết - Học Tốt' };
   try {
     const { data } = await supabase.from('app_config').select('*');
     if (data) data.forEach(r => { if (r.key) defaultCfg[r.key] = r.value || ''; });
@@ -251,6 +251,7 @@ export async function saveAppConfig(configObj, authToken) {
     enforceRole(authToken, 'ADMIN');
     await supabase.from('app_config').upsert([
       { key: 'logoUrl', value: configObj.logoUrl || '' },
+      { key: 'loginBgUrl', value: configObj.loginBgUrl || '' },
       { key: 'brandTitle', value: configObj.brandTitle || 'MR Vy' },
       { key: 'brandSub', value: configObj.brandSub || 'Hệ thống quản lý' },
       { key: 'headerSlogan', value: configObj.headerSlogan || '10A14 - Đoàn Kết - Học Tốt' }
