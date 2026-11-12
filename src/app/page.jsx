@@ -67,7 +67,7 @@ const RAW_BODY_HTML = `
           <button onclick="loadData()" class="p-2 bg-slate-800 hover:bg-slate-700 text-slate-300 rounded-xl transition" title="Tải lại">
             <i class="fa-solid fa-arrows-rotate"></i>
           </button>
-          <button onclick="location.reload()" class="p-2 bg-red-600/80 hover:bg-red-600 text-white rounded-xl transition" title="Đăng xuất">
+          <button onclick="handleLogout()" class="p-2 bg-red-600/80 hover:bg-red-600 text-white rounded-xl transition" title="Đăng xuất">
             <i class="fa-solid fa-power-off"></i>
           </button>
         </div>
@@ -1182,7 +1182,7 @@ export default function FullAppPage() {
     window.google = { script: { run: createRunner(null, null) } };
 
     // 2. Toàn bộ biến trạng thái & logic từ Index.html gốc
-    function getAuthToken() { return sessionStorage.getItem('authToken') || ''; }
+    function getAuthToken() { return localStorage.getItem('authToken') || sessionStorage.getItem('authToken') || ''; }
     let currentUser = null;
     let appData = {
       students: [], tasks: [], bonusPoints: [], violations: [], funds: [],
@@ -1244,6 +1244,27 @@ export default function FullAppPage() {
       { id: 'C4', label: 'T4: 4h-4h45' }
     ];
 
+    window.applyLoggedInState = function(user, token) {
+      localStorage.setItem('authToken', token);
+      localStorage.setItem('savedUser', JSON.stringify(user));
+      sessionStorage.setItem('authToken', token);
+      currentUser = user;
+
+      document.getElementById('loginSection').classList.add('hidden');
+      document.getElementById('dashboardSection').classList.remove('hidden');
+      
+      document.getElementById('userDisplayName').innerText = currentUser.hoTen;
+      document.getElementById('userRoleBadge').innerText = currentUser.role;
+      
+      const uMob = document.getElementById('userDisplayNameMobile');
+      const rMob = document.getElementById('userRoleBadgeMobile');
+      if (uMob) uMob.innerText = currentUser.hoTen;
+      if (rMob) rMob.innerText = currentUser.role;
+      
+      window.checkRoleAccess();
+      window.loadData();
+    };
+
     window.handleLogin = function() {
       const u = document.getElementById('loginUsername').value.trim();
       const p = document.getElementById('loginPassword').value.trim();
@@ -1257,25 +1278,21 @@ export default function FullAppPage() {
         btn.innerHTML = '<i class="fa-solid fa-right-to-bracket"></i> Đăng Nhập';
         btn.disabled = false;
         if (res.success) {
-          sessionStorage.setItem('authToken', res.token);
-          currentUser = res.user;
-          document.getElementById('loginSection').classList.add('hidden');
-          document.getElementById('dashboardSection').classList.remove('hidden');
-          
-          document.getElementById('userDisplayName').innerText = currentUser.hoTen;
-          document.getElementById('userRoleBadge').innerText = currentUser.role;
-          
-          const uMob = document.getElementById('userDisplayNameMobile');
-          const rMob = document.getElementById('userRoleBadgeMobile');
-          if (uMob) uMob.innerText = currentUser.hoTen;
-          if (rMob) rMob.innerText = currentUser.role;
-          
-          window.checkRoleAccess();
-          window.loadData();
+          window.applyLoggedInState(res.user, res.token);
         } else {
           alert(res.message);
         }
       }).loginUser(u, p);
+    };
+
+    window.handleLogout = function() {
+      localStorage.removeItem('authToken');
+      localStorage.removeItem('savedUser');
+      sessionStorage.removeItem('authToken');
+      currentUser = null;
+      document.getElementById('dashboardSection').classList.add('hidden');
+      document.getElementById('loginSection').classList.remove('hidden');
+      document.getElementById('loginPassword').value = '';
     };
 
     window.checkRoleAccess = function() {
@@ -3652,7 +3669,7 @@ export default function FullAppPage() {
       }
     };
 
-    // 3. Khởi chạy tải cấu hình ban đầu
+    // 3. Khởi chạy tải cấu hình ban đầu & tự động khôi phục phiên đăng nhập
     window.google.script.run.withSuccessHandler(cfg => {
       if (cfg) window.applyAppConfig(cfg);
     }).getPublicAppConfig();
@@ -3662,6 +3679,17 @@ export default function FullAppPage() {
         VP_PRESETS = res;
       }
     }).getVpPresetsConfig();
+
+    try {
+      const savedToken = localStorage.getItem('authToken');
+      const savedUserStr = localStorage.getItem('savedUser');
+      if (savedToken && savedUserStr) {
+        const parsedUser = JSON.parse(savedUserStr);
+        if (parsedUser && parsedUser.username) {
+          window.applyLoggedInState(parsedUser, savedToken);
+        }
+      }
+    } catch (e) {}
   }, []);
 
   return <div dangerouslySetInnerHTML={{ __html: RAW_BODY_HTML }} />;
