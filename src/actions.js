@@ -615,18 +615,39 @@ export async function deleteBonusPoint(id, authToken) {
   } catch (e) { return { success: false, message: e.message }; }
 }
 
-// ================= NHẬN DIỆN ẢNH THỜI KHÓA BIỂU TỰ ĐỘNG (ĐA LUỒNG CHỐNG QUÁ TẢI) =================
+// ================= NHẬN DIỆN ẢNH THỜI KHÓA BIỂU TỰ ĐỘNG BẰNG AI (CHUẨN 100%) =================
 export async function scanTKBImageWithAI(base64DataUrl, mimeType, authToken) {
   try {
     enforceRole(authToken, 'HOC_TAP');
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) {
-      return { success: false, fallbackLocal: true, message: 'Chưa có GEMINI_API_KEY' };
+      return { success: false, fallbackLocal: true, message: 'Chưa cấu hình GEMINI_API_KEY trên Vercel!' };
     }
 
     const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
 
-    const prompt = `Đọc bảng thời khóa biểu trong ảnh (Buổi sáng 5 tiết S1..S5, Buổi chiều 4 tiết C1..C4, từ Thứ 2 đến Thứ 7/CN) và trả về DUY NHẤT JSON chuẩn:
+    const prompt = `Bạn là hệ thống trích xuất Thời Khóa Biểu chính xác tuyệt đối.
+Hãy đọc bảng thời khóa biểu trong ảnh:
+- Phần "Buổi sáng": có 5 tiết (hàng 1 đến 5) ứng với mã "S1", "S2", "S3", "S4", "S5".
+- Phần "Buổi chiều": lấy 4 tiết đầu (hàng 1 đến 4) ứng với mã "C1", "C2", "C3", "C4" (bỏ qua hàng 5 buổi chiều).
+- Các cột từ trái sang phải là: Thứ 2, Thứ 3, Thứ 4, Thứ 5, Thứ 6, Thứ 7, Chủ Nhật (tổng cộng 7 cột trong mảng "cols"). Nếu ảnh chỉ có đến Thứ 7 thì cột thứ 7 (Chủ Nhật) luôn là "".
+
+YÊU CẦU BẮT BUỘC:
+1. Kiểm tra kỹ từng ô một theo đúng hàng (Tiết 1..5) và cột (Thứ 2..Thứ 7), TUYỆT ĐỐI KHÔNG bỏ sót bất kỳ ô nào có chữ và KHÔNG làm lệch hàng.
+2. Chuẩn hóa tên môn học như sau:
+   - "CHAOCO" hoặc "Chào cờ" -> "Chào cờ"
+   - "Sinh hoạt" hoặc "SHL" -> "Sinh hoạt"
+   - "Hoạt động trải nghiệm, hướng nghiệp" -> "HĐTN-HN"
+   - "Giáo dục kinh tế và pháp luật" -> "GDKT&PL"
+   - "Giáo dục thể chất" -> "GDTC"
+   - "Giáo dục quốc phòng và an ninh" -> "GDQP&AN"
+   - "Nội dung giáo dục của địa phương" -> "GDĐP"
+   - "Ngoại ngữ" hoặc "Tiếng Anh" -> "Tiếng Anh"
+   - "Toán học" hoặc "Toán" -> "Toán"
+   - Các môn khác giữ nguyên tên chuẩn: "Ngữ văn", "Vật lí", "Hóa học", "Sinh học", "Lịch sử", "Địa lí", "Công nghệ", "Tin học".
+   - Ô nào trống không có chữ thì để chuỗi rỗng "".
+
+Trả về DUY NHẤT chuỗi JSON đúng cấu trúc sau:
 [
   { "id": "S1", "cols": ["...", "...", "...", "...", "...", "", ""] },
   { "id": "S2", "cols": ["...", "...", "...", "...", "...", "", ""] },
@@ -637,10 +658,7 @@ export async function scanTKBImageWithAI(base64DataUrl, mimeType, authToken) {
   { "id": "C2", "cols": ["...", "...", "...", "...", "...", "", ""] },
   { "id": "C3", "cols": ["...", "...", "...", "...", "...", "", ""] },
   { "id": "C4", "cols": ["...", "...", "...", "...", "...", "", ""] }
-]
-Quy tắc:
-- Mỗi mảng "cols" có đúng 7 chuỗi (Thứ 2 -> CN). Ô trống để "".
-- Rút gọn tên môn: "CHAOCO"->"Chào cờ", "Hoạt động trải nghiệm, hướng nghiệp"->"HĐTN-HN", "Giáo dục kinh tế và pháp luật"->"GDKT&PL", "Giáo dục thể chất"->"GDTC", "Giáo dục quốc phòng và an ninh"->"GDQP&AN", "Nội dung giáo dục của địa phương"->"GDĐP", "Ngoại ngữ"->"Tiếng Anh", "Toán học"->"Toán".`;
+]`;
 
     const payload = {
       contents: [{
@@ -650,46 +668,83 @@ Quy tắc:
         ]
       }],
       generationConfig: {
-        temperature: 0.1,
+        temperature: 0.0,
         responseMimeType: "application/json"
       }
     };
 
-    /// Chỉ sử dụng thế hệ 3.x và bản Pro/Latest đời mới nhất, loại bỏ hoàn toàn 2.x
-    const modelsToTry = [
-      'gemini-3.0-flash-lite',
-      'gemini-3.0-flash',
-      'gemini-3.0-pro',
-      'gemini-3.8-flash',
-      'gemini-3.8-pro',
-      'gemini-flash-latest',
-      'gemini-pro-latest'
+    // 1. Tự động hỏi Google danh sách các model đang mở cho API Key này
+    let availableModels = [];
+    try {
+      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
+      const listData = await listRes.json();
+      if (listData && Array.isArray(listData.models)) {
+        availableModels = listData.models
+          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+          .map(m => m.name.replace('models/', ''))
+          .filter(name => name.includes('gemini') && !name.includes('embedding') && !name.includes('tts') && !name.includes('imagen'));
+      }
+    } catch (e) {}
+
+    // Sắp xếp ưu tiên các model đọc ảnh chuẩn và ít nghẽn nhất
+    const preferredOrder = [
+      'gemini-3.1-flash-lite-preview',
+      'gemini-3-flash-preview',
+      'gemini-3.1-pro-preview',
+      'gemini-2.5-pro',
+      'gemini-2.5-flash-lite',
+      'gemini-flash-lite-latest',
+      'gemini-pro-latest',
+      'gemini-flash-latest'
     ];
 
+    const modelsToTry = [...new Set([
+      ...preferredOrder.filter(m => availableModels.length === 0 || availableModels.includes(m)),
+      ...availableModels
+    ])];
+
     let result = null;
-    for (const modelName of modelsToTry) {
-      try {
-        const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(payload)
-        });
-        const data = await response.json();
-        if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-          result = data;
-          break;
+    let lastError = '';
+
+    for (const modelName of modelsToTry.slice(0, 6)) {
+      for (let attempt = 1; attempt <= 2; attempt++) {
+        try {
+          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(payload)
+          });
+          const data = await response.json();
+          if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
+            result = data;
+            break;
+          } else {
+            lastError = data?.error?.message || `Lỗi ${modelName}`;
+            // Nếu model không tồn tại hoặc bị khóa cho user mới thì chuyển ngay sang model kế tiếp
+            if (lastError.includes('no longer available') || lastError.includes('not found')) {
+              break;
+            }
+            // Nếu báo quá tải tạm thời (high demand) thì chờ 1.5 giây rồi thử lại lần 2
+            await new Promise(r => setTimeout(r, 1500));
+          }
+        } catch (e) {
+          lastError = e.message;
         }
-      } catch (e) {}
+      }
+      if (result) break;
     }
 
     if (!result) {
-      // Nếu tất cả server AI của Google đều đang bận (high demand), báo cho trình duyệt tự quét Offline!
-      return { success: false, fallbackLocal: true, message: 'Server Google AI đang quá tải, tự động chuyển sang chế độ đọc bảng trực tiếp trên trình duyệt!' };
+      return { success: false, fallbackLocal: true, message: lastError };
     }
 
     const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
     const cleanJson = rawText.replace(/```json|```/g, '').trim();
     const parsedGrid = JSON.parse(cleanJson);
+
+    if (!Array.isArray(parsedGrid) || parsedGrid.length === 0) {
+      return { success: false, fallbackLocal: true, message: 'Dữ liệu trả về trống' };
+    }
 
     return { success: true, grid: parsedGrid };
   } catch (err) {
