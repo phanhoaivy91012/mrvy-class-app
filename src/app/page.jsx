@@ -236,7 +236,7 @@ const RAW_BODY_HTML = `
                 <i class="fa-solid fa-paste"></i> Dán từ Excel
               </button>
               <button onclick="document.getElementById('tkbImageInput').click()" id="btnScanTKB" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> Nhập TKB từ Ảnh (5s)
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Nhập TKB từ Ảnh (AI)
               </button>
               <button onclick="saveAllScheduleAndNotes(false)" id="btnSaveSchedule" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-2">
                 <i class="fa-solid fa-floppy-disk"></i> Lưu Thay Đổi
@@ -1153,6 +1153,25 @@ const RAW_BODY_HTML = `
     </button>
   </div>
   <div class="h-16 md:hidden"></div>
+
+  <!-- Xem trước kết quả AI: không sửa TKB hiện tại nếu chưa xác nhận -->
+  <div id="tkbAIReviewModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-2 sm:p-4 z-[100]">
+    <div class="bg-white rounded-2xl shadow-2xl w-full max-w-[1400px] max-h-[96vh] flex flex-col overflow-hidden">
+      <div class="flex justify-between items-center gap-3 p-4 border-b">
+        <div><h3 class="text-base font-extrabold text-slate-900">Kiểm tra thời khóa biểu AI nhận diện</h3><p class="text-xs text-amber-700">Đối chiếu ảnh gốc và sửa từng ô. Chỉ áp dụng khi bạn xác nhận; chưa lưu lên Supabase.</p></div>
+        <button type="button" onclick="closeTKBAIReview()" class="px-3 py-2 rounded-lg bg-slate-100 font-bold">Đóng</button>
+      </div>
+      <div id="tkbAIWarnings" class="hidden mx-4 mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs whitespace-pre-line max-h-24 overflow-auto"></div>
+      <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 p-3 min-h-0 overflow-auto flex-1">
+        <div class="min-w-0"><p class="font-bold text-xs pb-2">Ảnh gốc (phóng to để so sánh)</p><div class="overflow-auto rounded-lg border bg-slate-100 max-h-[65vh]"><img id="tkbAIOriginalImage" alt="Ảnh TKB gốc" class="max-w-none w-full h-auto" /></div></div>
+        <div class="min-w-0"><p class="font-bold text-xs pb-2">Kết quả nhận diện — bấm vào ô để chỉnh sửa</p><div class="overflow-auto rounded-lg border max-h-[65vh]"><table id="tkbAIReviewTable" class="border-collapse min-w-[730px] text-xs w-full"></table></div></div>
+      </div>
+      <div class="p-3 border-t flex flex-wrap justify-end gap-2">
+        <button type="button" onclick="closeTKBAIReview()" class="px-4 py-2 rounded-lg bg-slate-200 font-bold">Hủy, giữ TKB cũ</button>
+        <button type="button" onclick="applyTKBAIReview()" class="px-4 py-2 rounded-lg bg-indigo-700 text-white font-bold">Áp dụng vào bảng (chưa lưu)</button>
+      </div>
+    </div>
+  </div>
 `;
 
 export default function FullAppPage() {
@@ -1932,7 +1951,15 @@ export default function FullAppPage() {
         btn.disabled = true;
       }
 
-      window.google.script.run.withSuccessHandler(() => {
+      window.google.script.run.withFailureHandler(err => {
+        if (btn && !silent) { btn.innerHTML = 'Lưu Thay Đổi'; btn.disabled = false; }
+        alert('Không thể lưu TKB: ' + (err?.message || String(err)));
+      }).withSuccessHandler(res => {
+        if (!res || !res.success) {
+          if (btn && !silent) { btn.innerHTML = 'Lưu Thay Đổi'; btn.disabled = false; }
+          alert('Lưu TKB thất bại: ' + (res?.message || 'Không rõ nguyên nhân'));
+          return;
+        }
         if (btn && !silent) {
           btn.innerHTML = '<i class="fa-solid fa-check"></i> Đã lưu';
           btn.classList.replace('bg-emerald-600', 'bg-blue-600');
@@ -2189,263 +2216,130 @@ window.exportTKBAndNotesImages = async function() {
       alert('🎉 Đã điền Thời Khóa Biểu tức thì! Hãy kiểm tra và bấm "Lưu Thay Đổi".');
     };
 
-    // CÁCH 2: QUÉT ẢNH SIÊU TỐC TRONG 5 GIÂY (1-PASS OCR + ĐỊNH VỊ THANH MÀU XANH XÁM)
-    async function runFastOnePassOCR(imgElement, btn, oldHtml, input) {
-      try {
-        btn.innerHTML = '<i class="fa-solid fa-bolt fa-beat"></i> Đang quét siêu tốc (5s)...';
-        if (!window.Tesseract) {
-          await new Promise((resolve, reject) => {
-            const s = document.createElement('script');
-            s.src = 'https://cdn.jsdelivr.net/npm/tesseract.js@5/dist/tesseract.min.js';
-            s.onload = resolve;
-            s.onerror = reject;
-            document.head.appendChild(s);
-          });
+    // NHẬN DIỆN TKB BẰNG GEMINI TẠI SERVER. KHÔNG DÙNG OCR CẮT Ô CỐ ĐỊNH.
+    const tkbAIIds = ['S1', 'S2', 'S3', 'S4', 'S5', 'C1', 'C2', 'C3', 'C4'];
+    const tkbAIDays = ['Thứ 2','Thứ 3','Thứ 4','Thứ 5','Thứ 6','Thứ 7','Chủ nhật'];
+    let tkbAIDraft = null;
+
+    function validateTKBAIClient(grid) {
+      if (!Array.isArray(grid) || grid.length !== 9) throw new Error('AI trả về không đủ 9 hàng.');
+      const ids = grid.map(r => r && r.id);
+      if (new Set(ids).size !== 9 || tkbAIIds.some(id => !ids.includes(id))) throw new Error('Mã tiết trả về bị sai hoặc bị trùng.');
+      return tkbAIIds.map(id => {
+        const row = grid.find(r => r.id === id);
+        if (!Array.isArray(row.cols) || row.cols.length !== 7 || row.cols.some(s => typeof s !== 'string')) {
+          throw new Error('Dữ liệu ở hàng ' + id + ' không đủ 7 ô.');
         }
-
-        const W = imgElement.width;
-        const H = imgElement.height;
-        const c = document.createElement('canvas');
-        c.width = W; c.height = H;
-        const ctx = c.getContext('2d');
-        ctx.drawImage(imgElement, 0, 0);
-        const px = ctx.getImageData(0, 0, W, H).data;
-
-        // 1. Dò 7 đường kẻ dọc chia 6 cột Thứ 2 -> Thứ 7
-        const vRaw = [];
-        for (let x = Math.floor(W * 0.04); x < W; x++) {
-          let dark = 0;
-          for (let y = Math.floor(H * 0.05); y < Math.floor(H * 0.90); y += 2) {
-            const i = (y * W + x) * 4;
-            if (px[i] < 170 && px[i + 1] < 170 && px[i + 2] < 170) dark++;
-          }
-          if (dark > H * 0.22) vRaw.push(x);
-        }
-        const vLines = [];
-        for (const x of vRaw) {
-          if (vLines.length === 0 || x - vLines[vLines.length - 1] > W * 0.05) vLines.push(x);
-        }
-
-        let colBounds = [];
-        if (vLines.length >= 7) {
-          const last7 = vLines.slice(vLines.length - 7);
-          for (let i = 0; i < 6; i++) colBounds.push({ x1: last7[i], x2: last7[i + 1] });
-        } else {
-          const lefts = [0.073, 0.227, 0.381, 0.536, 0.690, 0.845];
-          for (let i = 0; i < 6; i++) colBounds.push({ x1: Math.round(W * lefts[i]), x2: Math.round(W * (lefts[i] + 0.153)) });
-        }
-
-        // 2. Dò đúng 2 thanh tiêu đề màu xanh xám ("Thứ 2..Thứ 7" Buổi sáng và Buổi chiều)
-        // Màu nền của thanh "Thứ 2..Thứ 7" trong Excel có màu xanh lam nhạt (Blue > Red + 6)
-        const blueRows = [];
-        const sampleXStart = colBounds[0].x1 + 10;
-        const sampleXEnd = colBounds[4].x2 - 10;
-        for (let y = 0; y < H; y++) {
-          let blueCount = 0, total = 0;
-          for (let x = sampleXStart; x < sampleXEnd; x += 8) {
-            const i = (y * W + x) * 4;
-            const r = px[i], g = px[i + 1], b = px[i + 2];
-            total++;
-            if (b > r + 6 && b > 200 && r > 180 && r < 245) blueCount++;
-          }
-          if (blueCount > total * 0.6) blueRows.push(y);
-        }
-
-        // Gom thành 2 dải băng màu xanh (Header Sáng & Header Chiều)
-        const blueBands = [];
-        for (const y of blueRows) {
-          if (blueBands.length === 0 || y - blueBands[blueBands.length - 1].end > 25) {
-            blueBands.push({ start: y, end: y });
-          } else {
-            blueBands[blueBands.length - 1].end = y;
-          }
-        }
-
-        // Tìm các đường kẻ ngang thực tế trong vùng bảng
-        const hRaw = [];
-        for (let y = 0; y < H; y++) {
-          let dark = 0;
-          for (let x = sampleXStart; x < sampleXEnd; x += 2) {
-            const i = (y * W + x) * 4;
-            if (px[i] < 175 && px[i + 1] < 175 && px[i + 2] < 175) dark++;
-          }
-          if (dark > ((sampleXEnd - sampleXStart) / 2) * 0.50) hRaw.push(y);
-        }
-        const hLines = [];
-        for (const y of hRaw) {
-          if (hLines.length === 0 || y - hLines[hLines.length - 1] > 8) hLines.push(y);
-        }
-
-        // Hàm chia đúng N hàng tiết học giữa 2 mốc Y, ưu tiên bám theo vạch kẻ ngang nếu có, nếu chữ đè làm mất vạch thì tự động chia đôi!
-        function splitSectionIntoRows(yTop, yBottom, numRows) {
-          let internal = hLines.filter(y => y > yTop + 12 && y < yBottom - 12);
-          const pts = [yTop, ...internal, yBottom];
-          // Nếu có 1 khoảng bị gộp đôi do chữ "nghiệp" đè mất vạch kẻ (chiều cao gấp ~2 lần bình thường), tự động chẻ đôi khoảng đó!
-          const avgH = (yBottom - yTop) / numRows;
-          const fixedPts = [pts[0]];
-          for (let i = 0; i < pts.length - 1; i++) {
-            const gap = pts[i + 1] - pts[i];
-            if (gap > avgH * 1.65 && fixedPts.length + (pts.length - 1 - i) <= numRows) {
-              fixedPts.push(Math.round((pts[i] + pts[i + 1]) / 2));
-            }
-            fixedPts.push(pts[i + 1]);
-          }
-          const rows = [];
-          if (fixedPts.length === numRows + 1) {
-            for (let i = 0; i < numRows; i++) rows.push({ y1: fixedPts[i], y2: fixedPts[i + 1] });
-          } else {
-            for (let i = 0; i < numRows; i++) {
-              rows.push({
-                y1: Math.round(yTop + i * avgH),
-                y2: Math.round(yTop + (i + 1) * avgH)
-              });
-            }
-          }
-          return rows;
-        }
-
-        let morningYTop = Math.round(H * 0.045);
-        let morningYBottom = Math.round(H * 0.585);
-        let afternoonYTop = Math.round(H * 0.665);
-
-        if (blueBands.length >= 2) {
-          morningYTop = blueBands[0].end + 2;
-          // Đáy buổi sáng nằm ngay phía trên dòng chữ "Buổi chiều" (tức là cách đỉnh thanh xanh thứ 2 một khoảng bằng chiều cao thanh xanh)
-          const headerH = Math.max(20, blueBands[1].end - blueBands[1].start);
-          const lineAboveChieu = hLines.filter(y => y < blueBands[1].start - 8 && y > blueBands[0].end + 100).pop();
-          morningYBottom = lineAboveChieu || (blueBands[1].start - headerH);
-          afternoonYTop = blueBands[1].end + 2;
-        }
-
-        // Chia chính xác 5 tiết Buổi sáng (S1..S5), không bao giờ bị gộp Tiết 3 & Tiết 4 nữa!
-        const sRows = splitSectionIntoRows(morningYTop, morningYBottom, 5);
-
-        // Lấy các dòng Buổi chiều từ dưới thanh xanh thứ 2 trở xuống
-        const cLines = [afternoonYTop, ...hLines.filter(y => y > afternoonYTop + 15)];
-        const cRows = [];
-        for (let i = 0; i < 4; i++) {
-          if (i + 1 < cLines.length) {
-            cRows.push({ y1: cLines[i], y2: cLines[i + 1] });
-          } else {
-            cRows.push({ y1: 0, y2: 0 });
-          }
-        }
-
-        const allRowDefs = [
-          { id: 'S1', ...sRows[0] },
-          { id: 'S2', ...sRows[1] },
-          { id: 'S3', ...sRows[2] },
-          { id: 'S4', ...sRows[3] },
-          { id: 'S5', ...sRows[4] },
-          { id: 'C1', ...cRows[0] },
-          { id: 'C2', ...cRows[1] },
-          { id: 'C3', ...cRows[2] },
-          { id: 'C4', ...cRows[3] }
-        ];
-
-       
-    // 3. LỌC Ô CÓ CHỮ VỚI ĐỘ NHẠY CAO (KHÔNG BỎ SÓT CHỮ NGẮN NHƯ "VẬT LÍ", "ĐỊA LÍ")
-        const activeCells = [];
-        for (let rIdx = 0; rIdx < allRowDefs.length; rIdx++) {
-          const r = allRowDefs[rIdx];
-          const rh = r.y2 - r.y1;
-          if (rh < 18) continue;
-
-          for (let cIdx = 0; cIdx < 6; cIdx++) {
-            const cw = colBounds[cIdx].x2 - colBounds[cIdx].x1;
-            const sx = colBounds[cIdx].x1 + 6;
-            const sy = r.y1 + 4;
-            const sw = Math.max(10, cw - 12);
-            const sh = Math.max(10, rh - 8);
-
-            // Quét vùng trung tâm của ô (nơi chứa chữ) từng pixel một để không bao giờ sót chữ ngắn
-            let darkCount = 0;
-            const checkY1 = sy + Math.floor(sh * 0.15);
-            const checkY2 = sy + Math.floor(sh * 0.85);
-            const checkX1 = sx + Math.floor(sw * 0.12);
-            const checkX2 = sx + Math.floor(sw * 0.88);
-
-            for (let y = checkY1; y < checkY2; y++) {
-              for (let x = checkX1; x < checkX2; x++) {
-                const idx = (y * W + x) * 4;
-                if (px[idx] < 200 && px[idx + 1] < 200 && px[idx + 2] < 200) darkCount++;
-              }
-            }
-            // Chỉ cần có hơn 25 điểm ảnh tối trong vùng trung tâm là đưa vào đọc
-            if (darkCount > 25) {
-              activeCells.push({ rIdx, cIdx, id: r.id, sx, sy, sw, sh });
-            }
-          }
-        }
-
-        const worker = await window.Tesseract.createWorker('vie');
-        await worker.setParameters({ tessedit_pageseg_mode: '6' });
-
-        const resultGrid = allRowDefs.map(r => ({ id: r.id, cols: ['', '', '', '', '', '', ''] }));
-        const singleCanvas = document.createElement('canvas');
-        const singleCtx = singleCanvas.getContext('2d');
-
-        for (let i = 0; i < activeCells.length; i++) {
-          const cell = activeCells[i];
-          btn.innerHTML = `<i class="fa-solid fa-bolt"></i> Đang đọc ô ${i + 1}/${activeCells.length}...`;
-
-          const scale = 2.2;
-          const pad = 24;
-          const cw = Math.round(cell.sw * scale);
-          const ch = Math.round(cell.sh * scale);
-          singleCanvas.width = cw + pad * 2;
-          singleCanvas.height = ch + pad * 2;
-
-          singleCtx.fillStyle = '#ffffff';
-          singleCtx.fillRect(0, 0, singleCanvas.width, singleCanvas.height);
-          singleCtx.drawImage(imgElement, cell.sx, cell.sy, cell.sw, cell.sh, pad, pad, cw, ch);
-
-          // Làm nét chữ đen và xóa vệt kẻ ngang nếu có dính ở sát mép trên/dưới
-          const imgData = singleCtx.getImageData(0, 0, singleCanvas.width, singleCanvas.height);
-          const d = imgData.data;
-          for (let p = 0; p < d.length; p += 4) {
-            const gray = (d[p] + d[p + 1] + d[p + 2]) / 3;
-            const val = gray < 195 ? 0 : 255;
-            d[p] = d[p + 1] = d[p + 2] = val;
-          }
-          singleCtx.putImageData(imgData, 0, 0);
-
-          const { data: { text } } = await worker.recognize(singleCanvas);
-          resultGrid[cell.rIdx].cols[cell.cIdx] = normalizeSubjectFromText(text);
-        }
-
-        await worker.terminate();
-        appData.tkbData.grid = resultGrid;
-        window.renderTKBTable();
-        btn.innerHTML = oldHtml;
-        btn.disabled = false;
-        input.value = '';
-        alert(`🎉 Đã quét chuẩn xác ${activeCells.length} tiết học! Hãy kiểm tra và bấm "Lưu Thay Đổi" nhé!`);
-      } catch (err) {
-        btn.innerHTML = oldHtml;
-        btn.disabled = false;
-        input.value = '';
-        alert('Lỗi quét ảnh: ' + err.message);
-      }
+        return { id, cols: row.cols.slice() };
+      });
     }
 
-    window.handleScanTKBImage = function(input) {
-      if (!input.files || !input.files[0]) return;
-      const file = input.files[0];
-      const btn = document.getElementById('btnScanTKB');
-      const oldHtml = btn.innerHTML;
-      btn.innerHTML = '<i class="fa-solid fa-spinner fa-spin"></i> Đang xử lý ảnh...';
-      btn.disabled = true;
-
-      const reader = new FileReader();
-      reader.onload = function(e) {
+    async function imageToGeminiDataURL(file) {
+      if (!file.type.startsWith('image/')) throw new Error('Hãy chọn một file ảnh.');
+      if (file.size > 20 * 1024 * 1024) throw new Error('Ảnh trên 20 MB. Hãy giảm kích thước trước.');
+      const image = await new Promise((resolve, reject) => {
         const img = new Image();
-        img.onload = function() {
-          runFastOnePassOCR(img, btn, oldHtml, input);
-        };
-        img.src = e.target.result;
-      };
-      reader.readAsDataURL(file);
+        const url = URL.createObjectURL(file);
+        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
+        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Không thể mở ảnh.')); };
+        img.src = url;
+      });
+      const scale = Math.min(1, 2600 / Math.max(image.naturalWidth, image.naturalHeight));
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Trình duyệt không hỗ trợ xử lý ảnh.');
+      ctx.fillStyle = '#ffffff';
+      ctx.fillRect(0, 0, canvas.width, canvas.height);
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      let quality = 0.92;
+      let dataURL = canvas.toDataURL('image/jpeg', quality);
+      while (dataURL.length > 9 * 1024 * 1024 && quality > 0.6) {
+        quality -= 0.1;
+        dataURL = canvas.toDataURL('image/jpeg', quality);
+      }
+      if (dataURL.length > 10 * 1024 * 1024) throw new Error('Ảnh quá lớn để gửi AI. Hãy cắt phần TKB và thử lại.');
+      return dataURL;
+    }
+
+    window.closeTKBAIReview = function() {
+      document.getElementById('tkbAIReviewModal').classList.add('hidden');
+      document.getElementById('tkbAIOriginalImage').removeAttribute('src');
+      tkbAIDraft = null;
+    };
+
+    function showTKBAIReview(grid, src, warnings) {
+      tkbAIDraft = validateTKBAIClient(grid);
+      const table = document.getElementById('tkbAIReviewTable');
+      table.replaceChildren();
+      const head = document.createElement('tr');
+      ['Tiết', ...tkbAIDays].forEach(label => {
+        const th = document.createElement('th');
+        th.textContent = label;
+        th.className = 'border bg-slate-800 text-white p-2 whitespace-nowrap';
+        head.appendChild(th);
+      });
+      table.appendChild(head);
+      tkbAIDraft.forEach((row, ri) => {
+        const tr = document.createElement('tr');
+        const label = document.createElement('th');
+        label.textContent = row.id;
+        label.className = 'border p-2 bg-slate-100';
+        tr.appendChild(label);
+        row.cols.forEach((value, ci) => {
+          const td = document.createElement('td');
+          td.className = 'border p-1';
+          const input = document.createElement('textarea');
+          input.rows = 2;
+          input.value = value;
+          input.dataset.row = String(ri);
+          input.dataset.col = String(ci);
+          input.setAttribute('aria-label', row.id + ' ' + tkbAIDays[ci]);
+          input.className = 'w-full min-w-[90px] rounded border p-1 text-xs resize-y ' + (value ? 'bg-white' : 'bg-amber-50');
+          input.addEventListener('input', () => { tkbAIDraft[ri].cols[ci] = input.value; });
+          td.appendChild(input);
+          tr.appendChild(td);
+        });
+        table.appendChild(tr);
+      });
+      document.getElementById('tkbAIOriginalImage').src = src;
+      const warningEl = document.getElementById('tkbAIWarnings');
+      const messages = Array.isArray(warnings) ? warnings : [];
+      warningEl.classList.toggle('hidden', messages.length === 0);
+      warningEl.textContent = messages.length ? 'Ô cần kiểm tra:\n' + messages.join('\n') : '';
+      document.getElementById('tkbAIReviewModal').classList.remove('hidden');
+    }
+
+    window.applyTKBAIReview = function() {
+      if (!tkbAIDraft) return;
+      try {
+        const checked = validateTKBAIClient(tkbAIDraft);
+        if (!confirm('Áp dụng kết quả vào bảng TKB hiện tại? Sau đó bạn vẫn cần bấm Lưu Thay Đổi để lưu lên hệ thống.')) return;
+        appData.tkbData.grid = checked.map(r => ({ id: r.id, cols: r.cols.map(x => x.trim().slice(0, 150)) }));
+        window.renderTKBTable();
+        window.closeTKBAIReview();
+        alert('Đã áp dụng vào bảng. Hãy kiểm tra lại một lượt và bấm Lưu Thay Đổi.');
+      } catch (err) { alert('Kết quả chưa hợp lệ: ' + err.message); }
+    };
+
+    window.handleScanTKBImage = async function(input) {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      const btn = document.getElementById('btnScanTKB');
+      const oldHtml = btn ? btn.innerHTML : '';
+      if (btn) { btn.disabled = true; btn.innerHTML = 'Đang nhận diện bằng AI...'; }
+      try {
+        const dataURL = await imageToGeminiDataURL(file);
+        const response = await actions.scanTKBImageWithAI(dataURL, 'image/jpeg', getAuthToken());
+        if (!response || !response.success) throw new Error(response?.message || 'Máy chủ không trả về kết quả.');
+        showTKBAIReview(response.grid, dataURL, response.warnings || []);
+      } catch (err) {
+        alert('Nhận diện chưa thành công: ' + (err?.message || String(err)) + '\nThời khóa biểu cũ không bị thay đổi.');
+      } finally {
+        if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
+        input.value = '';
+      }
     };
     // ================= CÔNG VIỆC =================
     window.renderStudentsForModal = function() {
