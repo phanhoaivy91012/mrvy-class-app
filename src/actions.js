@@ -265,10 +265,19 @@ export async function saveAppConfig(configObj, authToken) {
 export async function saveTKBPackage(gridData, notesData, authToken) {
   try {
     enforceRole(authToken, 'HOC_TAP');
-    await supabase.from('tkb').upsert([
-      { key: 'TKB_GRID', data_json: gridData },
+    // Kiểm tra ở server để không ghi đè TKB bằng mảng AI sai cấu trúc.
+    const checked = Array.isArray(gridData) && gridData.length === 0
+      ? { valid: true, grid: [] } : validateTKBGrid(gridData);
+    if (!checked.valid) return { success: false, message: checked.error };
+    if (!notesData || typeof notesData !== 'object' || Array.isArray(notesData) ||
+        !Array.isArray(notesData.truong) || !Array.isArray(notesData.nha)) {
+      return { success: false, message: 'Ghi chú TKB không hợp lệ.' };
+    }
+    const { error } = await supabase.from('tkb').upsert([
+      { key: 'TKB_GRID', data_json: checked.grid },
       { key: 'NOTES_DATA', data_json: notesData }
-    ]);
+    ], { onConflict: 'key' });
+    if (error) throw error;
     return { success: true };
   } catch (err) { return { success: false, message: err.message }; }
 }
@@ -614,139 +623,186 @@ export async function deleteBonusPoint(id, authToken) {
   } catch (e) { return { success: false, message: e.message }; }
 }
 
-// ================= NHẬN DIỆN ẢNH THỜI KHÓA BIỂU TỰ ĐỘNG BẰNG AI (CHUẨN 100%) =================
+// ================= NHẬN DIỆN ẢNH THỜI KHÓA BIỂU - CÓ KIỂM TRA =================
+const TKB_IDS = ['S1','S2','S3','S4','S5','C1','C2','C3','C4'];
+const TKB_MIME = new Set(['image/jpeg','image/png','image/webp']);
+
+function normaliseSubject(value) {
+  const input = String(value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ');
+  if (!input || input === '-' || input === '—') return '';
+  const key = input.normalize('NFD').replace(/[\u0300-\u036f]/g, '')
+    .toLowerCase().replace(/[^a-z0-9]/g, '');
+  const names = {
+    chaoco: 'Chào cờ', shl: 'Sinh hoạt', sinhhoat: 'Sinh hoạt', sinhhoatlop: 'Sinh hoạt',
+    hdtn: 'HĐTN-HN', hdtnhn: 'HĐTN-HN', hoatdongtrainghiemhuongnghiep: 'HĐTN-HN',
+    gdktpl: 'GDKT&PL', giaoduckinhtevaphapluat: 'GDKT&PL',
+    gdtc: 'GDTC', giaoducthechat: 'GDTC',
+    gdqpan: 'GDQP&AN', giaoducquocphongvaanninh: 'GDQP&AN',
+    gddp: 'GDĐP', noidunggiaoducdiaphuong: 'GDĐP',
+    ngoaingu: 'Tiếng Anh', tienganh: 'Tiếng Anh', anh: 'Tiếng Anh',
+    toan: 'Toán', toanhoc: 'Toán',
+    nguvan: 'Ngữ văn', van: 'Ngữ văn',
+    vatli: 'Vật lí', vatly: 'Vật lí', li: 'Vật lí', ly: 'Vật lí',
+    hoahoc: 'Hóa học', hoa: 'Hóa học',
+    sinhhoc: 'Sinh học', sinh: 'Sinh học',
+    lichsu: 'Lịch sử', su: 'Lịch sử',
+    diali: 'Địa lí', dialy: 'Địa lí', dia: 'Địa lí',
+    congnghe: 'Công nghệ', tinhoc: 'Tin học'
+  };
+  // Không tự đoán khi nội dung không khớp danh mục; giữ nguyên để người dùng rà soát.
+  return names[key] || input;
+}
+
+function validateTKBGrid(rows) {
+  if (!Array.isArray(rows) || rows.length !== TKB_IDS.length) {
+    return { valid: false, error: 'TKB phải có đúng 9 hàng (S1-S5, C1-C4).' };
+  }
+  const seen = new Set();
+  const byId = new Map();
+  for (const row of rows) {
+    if (!row || typeof row !== 'object' || !TKB_IDS.includes(row.id) || seen.has(row.id)) {
+      return { valid: false, error: 'TKB có mã tiết trùng hoặc không hợp lệ.' };
+    }
+    if (!Array.isArray(row.cols) || row.cols.length !== 7 ||
+        row.cols.some(v => typeof v !== 'string' || v.length > 150)) {
+      return { valid: false, error: `Hàng ${row.id} phải có đủ 7 ô dạng văn bản.` };
+    }
+    seen.add(row.id);
+    byId.set(row.id, { id: row.id, cols: row.cols.map(normaliseSubject) });
+  }
+  return { valid: true, grid: TKB_IDS.map(id => byId.get(id)) };
+}
+
+function parseAIResponse(data) {
+  const parts = data?.candidates?.[0]?.content?.parts || [];
+  const responseText = parts.filter(p => typeof p.text === 'string').map(p => p.text).join('\n');
+  if (!responseText) throw new Error('AI không trả về nội dung.');
+  const parsed = JSON.parse(responseText.replace(/^```(?:json)?\s*|\s*```$/gi, '').trim());
+  const rows = Array.isArray(parsed) ? parsed : parsed?.rows;
+  const checked = validateTKBGrid(rows);
+  if (!checked.valid) throw new Error(checked.error);
+  const warnings = Array.isArray(parsed?.warnings)
+    ? parsed.warnings.filter(v => typeof v === 'string').slice(0, 25) : [];
+  const filled = checked.grid.reduce((count, row) => count + row.cols.filter(Boolean).length, 0);
+  if (filled === 0) throw new Error('AI không đọc được môn học nào trong ảnh.');
+  if (filled < 8) throw new Error('Chỉ nhận diện được ' + filled + ' ô môn học; ảnh quá thiếu dữ liệu để tự điền TKB.');
+  return { grid: checked.grid, warnings, filled };
+}
+
+async function fetchGeminiJson(url, options, timeoutMs) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    const response = await fetch(url, { ...options, signal: controller.signal });
+    const data = await response.json().catch(() => ({}));
+    if (!response.ok) {
+      const error = new Error(data?.error?.message || `Gemini HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
+    return data;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 export async function scanTKBImageWithAI(base64DataUrl, mimeType, authToken) {
   try {
     enforceRole(authToken, 'HOC_TAP');
     const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) {
-      return { success: false, fallbackLocal: true, message: 'Chưa cấu hình GEMINI_API_KEY trên Vercel!' };
+    if (!apiKey) return { success: false, fallbackLocal: false, message: 'Thiếu GEMINI_API_KEY trên Vercel.' };
+    if (typeof base64DataUrl !== 'string') {
+      return { success: false, fallbackLocal: false, message: 'Ảnh đầu vào không hợp lệ.' };
+    }
+    const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/is.exec(base64DataUrl.trim());
+    const imageMime = (match?.[1] || mimeType || '').toLowerCase();
+    if (!TKB_MIME.has(imageMime)) {
+      return { success: false, fallbackLocal: false, message: 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.' };
+    }
+    const base64Data = (match ? match[2] : base64DataUrl).replace(/\s/g, '');
+    if (!base64Data || base64Data.length % 4 !== 0 ||
+        !/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
+      return { success: false, fallbackLocal: false, message: 'Dữ liệu ảnh base64 bị lỗi.' };
+    }
+    const imageBuffer = Buffer.from(base64Data, 'base64');
+    if (!imageBuffer.length || imageBuffer.length > 8 * 1024 * 1024) {
+      return { success: false, fallbackLocal: false, message: 'Ảnh rỗng hoặc vượt quá 8 MB. Hãy nén/cắt ảnh.' };
+    }
+    const isJpeg = imageBuffer[0] === 0xff && imageBuffer[1] === 0xd8;
+    const isPng = imageBuffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
+    const isWebp = imageBuffer.toString('ascii', 0, 4) === 'RIFF' && imageBuffer.toString('ascii', 8, 12) === 'WEBP';
+    if (!((imageMime === 'image/jpeg' && isJpeg) ||
+          (imageMime === 'image/png' && isPng) ||
+          (imageMime === 'image/webp' && isWebp))) {
+      return { success: false, fallbackLocal: false, message: 'Định dạng ảnh không khớp với nội dung file.' };
     }
 
-    const base64Data = base64DataUrl.includes(',') ? base64DataUrl.split(',')[1] : base64DataUrl;
+    const prompt = `Hãy trích xuất chính xác THỜI KHÓA BIỂU trong ảnh trường phổ thông Việt Nam.
+Đầu tiên xác định tiêu đề THỨ, phần BUỔI SÁNG/BUỔI CHIỀU và số TIẾT ghi ở đầu mỗi hàng.
+Đừng suy luận thứ chỉ theo vị trí cột nếu ảnh có cột Tiết, Buổi, STT, Giáo viên hoặc phòng học.
+Đọc lần lượt từng giao điểm của ngày và tiết. Giữ đúng các môn kể cả có tiết trùng nhau.
+Ngày theo thứ tự: Thứ 2, Thứ 3, Thứ 4, Thứ 5, Thứ 6, Thứ 7, Chủ nhật.
+Buổi sáng tiết 1-5: S1-S5; buổi chiều tiết 1-4: C1-C4.
+Nếu bảng có tiết 5 buổi chiều thì bỏ qua vì giao diện ứng dụng chỉ hỗ trợ C1-C4.
+Nếu không có cột Chủ nhật hãy điền chuỗi rỗng cho ngày này.
+Nếu ô thật sự trống thì trả chuỗi rỗng; nếu mờ/không đọc được cũng trả chuỗi rỗng VÀ thêm cảnh báo nêu rõ tiết/ngày.
+Không tự điền các môn theo thói quen, không bịa môn và không nhầm tiêu đề/giáo viên/phòng học thành môn.
+Giữ nguyên tên môn/cụm từ đã đọc; server sẽ chuẩn hóa tên môn phổ biến.
+Chỉ trả JSON có trường rows và warnings. rows BẮT BUỘC chứa chính xác 9 phần tử, mỗi phần tử có id và cols gồm đúng 7 chuỗi.
+IDs: S1,S2,S3,S4,S5,C1,C2,C3,C4. warnings là mảng chuỗi mô tả những nơi không chắc chắn hoặc cột/buổi bị thiếu.`;
 
-    const prompt = `Bạn là hệ thống trích xuất Thời Khóa Biểu chính xác tuyệt đối.
-Hãy đọc bảng thời khóa biểu trong ảnh:
-- Phần "Buổi sáng": có 5 tiết (hàng 1 đến 5) ứng với mã "S1", "S2", "S3", "S4", "S5".
-- Phần "Buổi chiều": lấy 4 tiết đầu (hàng 1 đến 4) ứng với mã "C1", "C2", "C3", "C4" (bỏ qua hàng 5 buổi chiều).
-- Các cột từ trái sang phải là: Thứ 2, Thứ 3, Thứ 4, Thứ 5, Thứ 6, Thứ 7, Chủ Nhật (tổng cộng 7 cột trong mảng "cols"). Nếu ảnh chỉ có đến Thứ 7 thì cột thứ 7 (Chủ Nhật) luôn là "".
-
-YÊU CẦU BẮT BUỘC:
-1. Kiểm tra kỹ từng ô một theo đúng hàng (Tiết 1..5) và cột (Thứ 2..Thứ 7), TUYỆT ĐỐI KHÔNG bỏ sót bất kỳ ô nào có chữ và KHÔNG làm lệch hàng.
-2. Chuẩn hóa tên môn học như sau:
-   - "CHAOCO" hoặc "Chào cờ" -> "Chào cờ"
-   - "Sinh hoạt" hoặc "SHL" -> "Sinh hoạt"
-   - "Hoạt động trải nghiệm, hướng nghiệp" -> "HĐTN-HN"
-   - "Giáo dục kinh tế và pháp luật" -> "GDKT&PL"
-   - "Giáo dục thể chất" -> "GDTC"
-   - "Giáo dục quốc phòng và an ninh" -> "GDQP&AN"
-   - "Nội dung giáo dục của địa phương" -> "GDĐP"
-   - "Ngoại ngữ" hoặc "Tiếng Anh" -> "Tiếng Anh"
-   - "Toán học" hoặc "Toán" -> "Toán"
-   - Các môn khác giữ nguyên tên chuẩn: "Ngữ văn", "Vật lí", "Hóa học", "Sinh học", "Lịch sử", "Địa lí", "Công nghệ", "Tin học".
-   - Ô nào trống không có chữ thì để chuỗi rỗng "".
-
-Trả về DUY NHẤT chuỗi JSON đúng cấu trúc sau:
-[
-  { "id": "S1", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "S2", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "S3", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "S4", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "S5", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "C1", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "C2", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "C3", "cols": ["...", "...", "...", "...", "...", "", ""] },
-  { "id": "C4", "cols": ["...", "...", "...", "...", "...", "", ""] }
-]`;
-
+    const schema = {
+      type: 'OBJECT', properties: {
+        rows: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
+          id: { type: 'STRING' },
+          cols: { type: 'ARRAY', items: { type: 'STRING' } }
+        }, required: ['id','cols'] } },
+        warnings: { type: 'ARRAY', items: { type: 'STRING' } }
+      }, required: ['rows','warnings']
+    };
     const payload = {
-      contents: [{
-        parts: [
-          { text: prompt },
-          { inline_data: { mime_type: mimeType || 'image/jpeg', data: base64Data } }
-        ]
-      }],
-      generationConfig: {
-        temperature: 0.0,
-        responseMimeType: "application/json"
-      }
+      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: imageMime, data: base64Data } }] }],
+      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema }
     };
 
-    // 1. Tự động hỏi Google danh sách các model đang mở cho API Key này
-    let availableModels = [];
+    // Lấy các model thực sự có thể gọi; tránh tự thử hàng loạt model preview.
+    let modelNames = [];
     try {
-      const listRes = await fetch(`https://generativelanguage.googleapis.com/v1beta/models?key=${apiKey}`);
-      const listData = await listRes.json();
-      if (listData && Array.isArray(listData.models)) {
-        availableModels = listData.models
-          .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-          .map(m => m.name.replace('models/', ''))
-          .filter(name => name.includes('gemini') && !name.includes('embedding') && !name.includes('tts') && !name.includes('imagen'));
+      const modelsData = await fetchGeminiJson('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
+        { headers: { 'x-goog-api-key': apiKey } }, 6500);
+      modelNames = (modelsData.models || [])
+        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
+        .map(m => String(m.name || '').replace(/^models\//, ''))
+        .filter(name => /^gemini-/.test(name) && !/image|tts|audio|embedding|live/i.test(name));
+    } catch (e) { /* fallback model dưới đây */ }
+    const preferred = [process.env.GEMINI_TKB_MODEL, 'gemini-2.5-flash', 'gemini-2.5-pro']
+      .filter(Boolean);
+    const usable = modelNames.length
+      ? [...preferred.filter(name => modelNames.includes(name)), ...modelNames.filter(name => /flash|pro/i.test(name))]
+      : preferred;
+    const candidates = [...new Set(usable)].slice(0, 2);
+    let lastError = 'Chưa tìm được model Gemini phù hợp.';
+    for (const model of candidates) {
+      try {
+        const data = await fetchGeminiJson(
+          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
+          { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(payload) },
+          24000
+        );
+        const parsed = parseAIResponse(data);
+        return {
+          success: true, grid: parsed.grid, warnings: parsed.warnings,
+          needsReview: parsed.warnings.length > 0,
+          model, message: parsed.warnings.length ? 'Đã nhận diện, cần kiểm tra các ô được cảnh báo.' : 'Đã nhận diện. Hãy rà soát bảng trước khi lưu.'
+        };
+      } catch (e) {
+        lastError = e.name === 'AbortError' ? `Model ${model} xử lý quá lâu.` : e.message;
+        // Không tiếp tục khi lỗi thuộc về khóa API, quyền hoặc quota.
+        if ([400,401,403,429].includes(e.status)) break;
       }
-    } catch (e) {}
-
-    // Sắp xếp ưu tiên các model đọc ảnh chuẩn và ít nghẽn nhất
-    const preferredOrder = [
-      'gemini-3.1-flash-lite-preview',
-      'gemini-3-flash-preview',
-      'gemini-3.1-pro-preview',
-      'gemini-2.5-pro',
-      'gemini-2.5-flash-lite',
-      'gemini-flash-lite-latest',
-      'gemini-pro-latest',
-      'gemini-flash-latest'
-    ];
-
-    const modelsToTry = [...new Set([
-      ...preferredOrder.filter(m => availableModels.length === 0 || availableModels.includes(m)),
-      ...availableModels
-    ])];
-
-    let result = null;
-    let lastError = '';
-
-    for (const modelName of modelsToTry.slice(0, 6)) {
-      for (let attempt = 1; attempt <= 2; attempt++) {
-        try {
-          const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${modelName}:generateContent?key=${apiKey}`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify(payload)
-          });
-          const data = await response.json();
-          if (response.ok && data?.candidates?.[0]?.content?.parts?.[0]?.text) {
-            result = data;
-            break;
-          } else {
-            lastError = data?.error?.message || `Lỗi ${modelName}`;
-            // Nếu model không tồn tại hoặc bị khóa cho user mới thì chuyển ngay sang model kế tiếp
-            if (lastError.includes('no longer available') || lastError.includes('not found')) {
-              break;
-            }
-            // Nếu báo quá tải tạm thời (high demand) thì chờ 1.5 giây rồi thử lại lần 2
-            await new Promise(r => setTimeout(r, 1500));
-          }
-        } catch (e) {
-          lastError = e.message;
-        }
-      }
-      if (result) break;
     }
-
-    if (!result) {
-      return { success: false, fallbackLocal: true, message: lastError };
-    }
-
-    const rawText = result?.candidates?.[0]?.content?.parts?.[0]?.text || '[]';
-    const cleanJson = rawText.replace(/```json|```/g, '').trim();
-    const parsedGrid = JSON.parse(cleanJson);
-
-    if (!Array.isArray(parsedGrid) || parsedGrid.length === 0) {
-      return { success: false, fallbackLocal: true, message: 'Dữ liệu trả về trống' };
-    }
-
-    return { success: true, grid: parsedGrid };
+    return { success: false, fallbackLocal: false, message: `Không thể đọc TKB: ${lastError}. Dữ liệu cũ được giữ nguyên.` };
   } catch (err) {
-    return { success: false, fallbackLocal: true, message: err.message };
+    return { success: false, fallbackLocal: false, message: err.message };
   }
 }
