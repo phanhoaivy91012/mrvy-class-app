@@ -2,6 +2,7 @@
 
 import { useEffect } from 'react';
 import * as actions from '../actions';
+import { scanTKBLocally } from './tkb-ocr';
 
 const RAW_BODY_HTML = `
   <!-- 1. MÀN HÌNH ĐĂNG NHẬP (FULL MÀN HÌNH ẢNH LỚP) -->
@@ -231,12 +232,16 @@ const RAW_BODY_HTML = `
               <i class="fa-solid fa-calendar-days text-emerald-600"></i> Thời Khóa Biểu
             </h2>
             <div class="flex flex-wrap items-center gap-2">
+              <span class="text-xs font-bold text-slate-700">Có tác dụng từ ngày:</span>
+              <strong id="tkbEffectiveDateText" class="text-xs font-extrabold text-indigo-700">Chưa thiết lập</strong>
+              <label for="tkbEffectiveDate" class="sr-only">Chỉnh ngày hiệu lực TKB</label>
+              <input type="date" id="tkbEffectiveDate" onchange="updateTKBEffectiveDate(this.value)" class="border border-indigo-200 rounded-lg px-2 py-1.5 bg-indigo-50 font-bold text-xs text-indigo-800" title="Ngày bắt đầu áp dụng thời khóa biểu">
               <input type="file" id="tkbImageInput" accept="image/*" class="hidden" onchange="handleScanTKBImage(this)">
               <button onclick="openPasteTKBModal()" id="btnPasteTKB" class="bg-amber-500 hover:bg-amber-600 text-white font-bold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
                 <i class="fa-solid fa-paste"></i> Dán từ Excel
               </button>
               <button onclick="document.getElementById('tkbImageInput').click()" id="btnScanTKB" class="hidden bg-indigo-600 hover:bg-indigo-700 text-white font-bold px-3.5 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-1.5">
-                <i class="fa-solid fa-wand-magic-sparkles"></i> Nhập TKB từ Ảnh (AI)
+                <i class="fa-solid fa-wand-magic-sparkles"></i> Quét TKB từ ảnh (không dùng AI)
               </button>
               <button onclick="saveAllScheduleAndNotes(false)" id="btnSaveSchedule" class="hidden bg-emerald-600 hover:bg-emerald-700 text-white font-bold px-4 py-2 rounded-xl text-xs sm:text-sm shadow-md transition flex items-center gap-2">
                 <i class="fa-solid fa-floppy-disk"></i> Lưu Thay Đổi
@@ -1154,12 +1159,17 @@ const RAW_BODY_HTML = `
   </div>
   <div class="h-16 md:hidden"></div>
 
-  <!-- Xem trước kết quả AI: không sửa TKB hiện tại nếu chưa xác nhận -->
+  <!-- Xem trước kết quả OCR cục bộ: không sửa TKB hiện tại nếu chưa xác nhận -->
   <div id="tkbAIReviewModal" class="hidden fixed inset-0 bg-black/70 flex items-center justify-center p-2 sm:p-4 z-[100]">
     <div class="bg-white rounded-2xl shadow-2xl w-full max-w-[1400px] max-h-[96vh] flex flex-col overflow-hidden">
       <div class="flex justify-between items-center gap-3 p-4 border-b">
-        <div><h3 class="text-base font-extrabold text-slate-900">Kiểm tra thời khóa biểu AI nhận diện</h3><p class="text-xs text-amber-700">Đối chiếu ảnh gốc và sửa từng ô. Chỉ áp dụng khi bạn xác nhận; chưa lưu lên Supabase.</p></div>
+        <div><h3 class="text-base font-extrabold text-slate-900">Kiểm tra thời khóa biểu quét trên máy</h3><p class="text-xs text-amber-700">Đối chiếu ảnh gốc và sửa từng ô. Chỉ áp dụng khi bạn xác nhận; chưa lưu lên Supabase.</p></div>
         <button type="button" onclick="closeTKBAIReview()" class="px-3 py-2 rounded-lg bg-slate-100 font-bold">Đóng</button>
+      </div>
+      <div class="flex flex-wrap items-center gap-3 px-4 pt-3 text-xs">
+        <label for="tkbPreviewEffectiveDate" class="font-bold text-slate-800">Có tác dụng từ ngày:</label>
+        <input id="tkbPreviewEffectiveDate" type="date" class="rounded-lg border border-indigo-300 p-2 font-bold text-indigo-700" />
+        <span id="tkbPreviewDateSource" class="text-slate-500"></span>
       </div>
       <div id="tkbAIWarnings" class="hidden mx-4 mt-3 p-3 rounded-lg border border-amber-300 bg-amber-50 text-amber-900 text-xs whitespace-pre-line max-h-24 overflow-auto"></div>
       <div class="grid grid-cols-1 lg:grid-cols-2 gap-3 p-3 min-h-0 overflow-auto flex-1">
@@ -1210,7 +1220,7 @@ export default function FullAppPage() {
     let currentUser = null;
     let appData = {
       students: [], tasks: [], bonusPoints: [], violations: [], funds: [],
-      tkbData: { grid: [], notes: { truong: [], nha: [] } },
+      tkbData: { grid: [], notes: { truong: [], nha: [] }, effectiveDate: '' },
       appConfig: { logoUrl: '', brandTitle: 'MR Vy', brandSub: 'Hệ thống quản lý', headerSlogan: '10A4 - Đoàn Kết - Học Tốt' }
     };
     let currentLogoBase64 = '';
@@ -1739,12 +1749,30 @@ export default function FullAppPage() {
     };
 
    // ================= THỜI KHÓA BIỂU =================
+    window.updateTKBEffectiveDate = function(value) {
+      if (!appData.tkbData) appData.tkbData = { grid: [], notes: { truong: [], nha: [] } };
+      appData.tkbData.effectiveDate = value || '';
+      const display = document.getElementById('tkbEffectiveDateText');
+      if (display) display.textContent = value ? value.split('-').reverse().join('/') : 'Chưa thiết lập';
+      // Chỉ ghi vào dữ liệu nháp. Muốn lưu lên Supabase, bấm "Lưu Thay Đổi".
+    };
+
     window.renderTKBTable = function() {
       const tbody = document.getElementById('tblFullTKBBody');
       if (!tbody) return;
       tbody.innerHTML = '';
       const r = (currentUser && currentUser.role) ? currentUser.role.toLowerCase() : '';
       const canEditTKB = (r === 'admin' || r === 'lopphohoctap' || r.includes('học tập') || r.includes('hoc tap'));
+      const effectiveText = document.getElementById('tkbEffectiveDateText');
+      if (effectiveText) {
+        const value = appData?.tkbData?.effectiveDate || '';
+        effectiveText.textContent = value ? value.split('-').reverse().join('/') : 'Chưa thiết lập';
+      }
+      const effectiveInput = document.getElementById('tkbEffectiveDate');
+      if (effectiveInput) {
+        effectiveInput.value = appData?.tkbData?.effectiveDate || '';
+        effectiveInput.disabled = !canEditTKB;
+      }
 
       // 1. Tính ngày trong tuần hiện tại (Thứ 2 -> Chủ Nhật) và xác định cột ngày hôm nay (0 = Thứ 2 ... 6 = CN)
       const now = new Date();
@@ -1969,7 +1997,7 @@ export default function FullAppPage() {
             btn.disabled = false;
           }, 1500);
         }
-      }).saveTKBPackage(appData.tkbData.grid, appData.tkbData.notes, getAuthToken());
+      }).saveTKBPackage(appData.tkbData.grid, appData.tkbData.notes, getAuthToken(), appData.tkbData.effectiveDate || '');
     };
 
 window.exportTKBAndNotesImages = async function() {
@@ -2222,7 +2250,7 @@ window.exportTKBAndNotesImages = async function() {
     let tkbAIDraft = null;
 
     function validateTKBAIClient(grid) {
-      if (!Array.isArray(grid) || grid.length !== 9) throw new Error('AI trả về không đủ 9 hàng.');
+      if (!Array.isArray(grid) || grid.length !== 9) throw new Error('Kết quả OCR không đủ 9 hàng.');
       const ids = grid.map(r => r && r.id);
       if (new Set(ids).size !== 9 || tkbAIIds.some(id => !ids.includes(id))) throw new Error('Mã tiết trả về bị sai hoặc bị trùng.');
       return tkbAIIds.map(id => {
@@ -2234,43 +2262,24 @@ window.exportTKBAndNotesImages = async function() {
       });
     }
 
-    async function imageToGeminiDataURL(file) {
-      if (!file.type.startsWith('image/')) throw new Error('Hãy chọn một file ảnh.');
-      if (file.size > 20 * 1024 * 1024) throw new Error('Ảnh trên 20 MB. Hãy giảm kích thước trước.');
-      const image = await new Promise((resolve, reject) => {
-        const img = new Image();
-        const url = URL.createObjectURL(file);
-        img.onload = () => { URL.revokeObjectURL(url); resolve(img); };
-        img.onerror = () => { URL.revokeObjectURL(url); reject(new Error('Không thể mở ảnh.')); };
-        img.src = url;
-      });
-      const scale = Math.min(1, 2600 / Math.max(image.naturalWidth, image.naturalHeight));
-      const canvas = document.createElement('canvas');
-      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
-      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
-      const ctx = canvas.getContext('2d');
-      if (!ctx) throw new Error('Trình duyệt không hỗ trợ xử lý ảnh.');
-      ctx.fillStyle = '#ffffff';
-      ctx.fillRect(0, 0, canvas.width, canvas.height);
-      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
-      let quality = 0.92;
-      let dataURL = canvas.toDataURL('image/jpeg', quality);
-      while (dataURL.length > 9 * 1024 * 1024 && quality > 0.6) {
-        quality -= 0.1;
-        dataURL = canvas.toDataURL('image/jpeg', quality);
-      }
-      if (dataURL.length > 10 * 1024 * 1024) throw new Error('Ảnh quá lớn để gửi AI. Hãy cắt phần TKB và thử lại.');
-      return dataURL;
-    }
+    let tkbPreviewURL = '';
+    let tkbDraftDate = '';
 
     window.closeTKBAIReview = function() {
       document.getElementById('tkbAIReviewModal').classList.add('hidden');
       document.getElementById('tkbAIOriginalImage').removeAttribute('src');
+      if (tkbPreviewURL) { URL.revokeObjectURL(tkbPreviewURL); tkbPreviewURL = ''; }
       tkbAIDraft = null;
+      tkbDraftDate = '';
     };
 
-    function showTKBAIReview(grid, src, warnings) {
-      tkbAIDraft = validateTKBAIClient(grid);
+    function showTKBAIReview(result, src) {
+      tkbAIDraft = validateTKBAIClient(result.grid);
+      tkbDraftDate = result.effectiveDate;
+      document.getElementById('tkbPreviewEffectiveDate').value = result.effectiveDate;
+      document.getElementById('tkbPreviewDateSource').textContent = result.dateSource === 'image'
+        ? 'Ngày đọc từ ảnh (cần đối chiếu)'
+        : 'Ảnh không có ngày hoặc OCR không đọc được — mặc định Thứ Hai tuần tới';
       const table = document.getElementById('tkbAIReviewTable');
       table.replaceChildren();
       const head = document.createElement('tr');
@@ -2281,6 +2290,7 @@ window.exportTKBAndNotesImages = async function() {
         head.appendChild(th);
       });
       table.appendChild(head);
+      const flagged = new Set(result.uncertainCells || []);
       tkbAIDraft.forEach((row, ri) => {
         const tr = document.createElement('tr');
         const label = document.createElement('th');
@@ -2292,11 +2302,13 @@ window.exportTKBAndNotesImages = async function() {
           td.className = 'border p-1';
           const input = document.createElement('textarea');
           input.rows = 2;
+          input.maxLength = 150;
           input.value = value;
-          input.dataset.row = String(ri);
-          input.dataset.col = String(ci);
           input.setAttribute('aria-label', row.id + ' ' + tkbAIDays[ci]);
-          input.className = 'w-full min-w-[90px] rounded border p-1 text-xs resize-y ' + (value ? 'bg-white' : 'bg-amber-50');
+          const needReview = flagged.has(row.id + '-' + ci);
+          input.title = needReview ? 'OCR chưa chắc chắn: xem lại ảnh gốc và sửa ô này.' : '';
+          input.className = 'w-full min-w-[90px] rounded border p-1 text-xs resize-y ' +
+            (needReview ? 'bg-amber-100 border-amber-500 ring-1 ring-amber-300' : (value ? 'bg-white' : 'bg-slate-50'));
           input.addEventListener('input', () => { tkbAIDraft[ri].cols[ci] = input.value; });
           td.appendChild(input);
           tr.appendChild(td);
@@ -2305,9 +2317,9 @@ window.exportTKBAndNotesImages = async function() {
       });
       document.getElementById('tkbAIOriginalImage').src = src;
       const warningEl = document.getElementById('tkbAIWarnings');
-      const messages = Array.isArray(warnings) ? warnings : [];
+      const messages = Array.isArray(result.warnings) ? result.warnings : [];
       warningEl.classList.toggle('hidden', messages.length === 0);
-      warningEl.textContent = messages.length ? 'Ô cần kiểm tra:\n' + messages.join('\n') : '';
+      warningEl.textContent = messages.length ? 'Cần đối chiếu trước khi áp dụng:\n' + messages.join('\n') : '';
       document.getElementById('tkbAIReviewModal').classList.remove('hidden');
     }
 
@@ -2315,12 +2327,18 @@ window.exportTKBAndNotesImages = async function() {
       if (!tkbAIDraft) return;
       try {
         const checked = validateTKBAIClient(tkbAIDraft);
-        if (!confirm('Áp dụng kết quả vào bảng TKB hiện tại? Sau đó bạn vẫn cần bấm Lưu Thay Đổi để lưu lên hệ thống.')) return;
-        appData.tkbData.grid = checked.map(r => ({ id: r.id, cols: r.cols.map(x => x.trim().slice(0, 150)) }));
+        const dateInput = document.getElementById('tkbPreviewEffectiveDate');
+        const date = dateInput.value;
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(date) || !dateInput.validity.valid) {
+          throw new Error('Hãy chọn ngày có tác dụng hợp lệ trước khi áp dụng.');
+        }
+        if (!confirm('Áp dụng bảng vừa quét và ngày hiệu lực ' + date.split('-').reverse().join('/') + '? Chưa lưu lên Supabase cho tới khi bạn bấm Lưu Thay Đổi.')) return;
+        appData.tkbData.grid = checked.map(row => ({ id: row.id, cols: row.cols.map(x => x.trim().slice(0, 150)) }));
+        appData.tkbData.effectiveDate = date;
         window.renderTKBTable();
         window.closeTKBAIReview();
-        alert('Đã áp dụng vào bảng. Hãy kiểm tra lại một lượt và bấm Lưu Thay Đổi.');
-      } catch (err) { alert('Kết quả chưa hợp lệ: ' + err.message); }
+        alert('Đã áp dụng bản nháp. Hãy bấm Lưu Thay Đổi để lưu TKB và ngày có tác dụng.');
+      } catch (err) { alert('Kết quả chưa hợp lệ: ' + (err?.message || String(err))); }
     };
 
     window.handleScanTKBImage = async function(input) {
@@ -2328,14 +2346,13 @@ window.exportTKBAndNotesImages = async function() {
       if (!file) return;
       const btn = document.getElementById('btnScanTKB');
       const oldHtml = btn ? btn.innerHTML : '';
-      if (btn) { btn.disabled = true; btn.innerHTML = 'Đang nhận diện bằng AI...'; }
+      if (btn) { btn.disabled = true; btn.textContent = 'Đang tìm hàng và cột...'; }
       try {
-        const dataURL = await imageToGeminiDataURL(file);
-        const response = await actions.scanTKBImageWithAI(dataURL, 'image/jpeg', getAuthToken());
-        if (!response || !response.success) throw new Error(response?.message || 'Máy chủ không trả về kết quả.');
-        showTKBAIReview(response.grid, dataURL, response.warnings || []);
+        const result = await scanTKBLocally(file, message => { if (btn) btn.textContent = message; });
+        tkbPreviewURL = URL.createObjectURL(file);
+        showTKBAIReview(result, tkbPreviewURL);
       } catch (err) {
-        alert('Nhận diện chưa thành công: ' + (err?.message || String(err)) + '\nThời khóa biểu cũ không bị thay đổi.');
+        alert('Không thể quét TKB: ' + (err?.message || String(err)) + '\nTKB cũ được giữ nguyên.');
       } finally {
         if (btn) { btn.disabled = false; btn.innerHTML = oldHtml; }
         input.value = '';
