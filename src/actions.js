@@ -146,7 +146,7 @@ export async function getInitialData(authToken) {
   if (!role) {
     return {
       students: [], tasks: [], bonusPoints: [], violations: [], funds: [],
-      tkbData: { grid: [], notes: { truong: [], nha: [] } }, appConfig, adminEmail: ''
+      tkbData: { grid: [], notes: { truong: [], nha: [] }, effectiveDate: '' }, appConfig, adminEmail: ''
     };
   }
 
@@ -215,10 +215,11 @@ export async function getInitialData(authToken) {
     ngayTao: f.ngay_tao || '', nguoiNhap: f.nguoi_nhap || ''
   }));
 
-  let tkbData = { grid: [], notes: { truong: [], nha: [] } };
+  let tkbData = { grid: [], notes: { truong: [], nha: [] }, effectiveDate: '' };
   (tkbRes.data || []).forEach(r => {
     if (r.key === 'TKB_GRID') tkbData.grid = r.data_json || [];
     if (r.key === 'NOTES_DATA') tkbData.notes = r.data_json || { truong: [], nha: [] };
+    if (r.key === 'TKB_EFFECTIVE_DATE') tkbData.effectiveDate = typeof r.data_json?.date === 'string' ? r.data_json.date : '';
   });
 
   return { students, tasks, bonusPoints, violations, funds, tkbData, appConfig, adminEmail };
@@ -262,7 +263,7 @@ export async function saveAppConfig(configObj, authToken) {
   } catch (e) { return { success: false, message: e.message }; }
 }
 
-export async function saveTKBPackage(gridData, notesData, authToken) {
+export async function saveTKBPackage(gridData, notesData, authToken, effectiveDate) {
   try {
     enforceRole(authToken, 'HOC_TAP');
     // Kiểm tra ở server để không ghi đè TKB bằng mảng AI sai cấu trúc.
@@ -273,10 +274,22 @@ export async function saveTKBPackage(gridData, notesData, authToken) {
         !Array.isArray(notesData.truong) || !Array.isArray(notesData.nha)) {
       return { success: false, message: 'Ghi chú TKB không hợp lệ.' };
     }
-    const { error } = await supabase.from('tkb').upsert([
+    const rowsToSave = [
       { key: 'TKB_GRID', data_json: checked.grid },
       { key: 'NOTES_DATA', data_json: notesData }
-    ], { onConflict: 'key' });
+    ];
+    if (effectiveDate !== undefined) {
+      if (typeof effectiveDate !== 'string') return { success: false, message: 'Ngày hiệu lực phải là chuỗi ISO yyyy-mm-dd.' };
+      if (effectiveDate) {
+        if (!/^\d{4}-\d{2}-\d{2}$/.test(effectiveDate)) return { success: false, message: 'Ngày hiệu lực không đúng định dạng.' };
+        const parsed = new Date(effectiveDate + 'T00:00:00Z');
+        if (!Number.isFinite(parsed.getTime()) || parsed.toISOString().slice(0, 10) !== effectiveDate) {
+          return { success: false, message: 'Ngày hiệu lực không hợp lệ.' };
+        }
+      }
+      rowsToSave.push({ key: 'TKB_EFFECTIVE_DATE', data_json: { date: effectiveDate } });
+    }
+    const { error } = await supabase.from('tkb').upsert(rowsToSave, { onConflict: 'key' });
     if (error) throw error;
     return { success: true };
   } catch (err) { return { success: false, message: err.message }; }
@@ -623,9 +636,8 @@ export async function deleteBonusPoint(id, authToken) {
   } catch (e) { return { success: false, message: e.message }; }
 }
 
-// ================= NHẬN DIỆN ẢNH THỜI KHÓA BIỂU - CÓ KIỂM TRA =================
+// ================= CHUẨN HÓA VÀ KIỂM TRA DỮ LIỆU THỜI KHÓA BIỂU =================
 const TKB_IDS = ['S1','S2','S3','S4','S5','C1','C2','C3','C4'];
-const TKB_MIME = new Set(['image/jpeg','image/png','image/webp']);
 
 function normaliseSubject(value) {
   const input = String(value ?? '').normalize('NFC').trim().replace(/\s+/g, ' ');
@@ -671,138 +683,4 @@ function validateTKBGrid(rows) {
     byId.set(row.id, { id: row.id, cols: row.cols.map(normaliseSubject) });
   }
   return { valid: true, grid: TKB_IDS.map(id => byId.get(id)) };
-}
-
-function parseAIResponse(data) {
-  const parts = data?.candidates?.[0]?.content?.parts || [];
-  const responseText = parts.filter(p => typeof p.text === 'string').map(p => p.text).join('\n');
-  if (!responseText) throw new Error('AI không trả về nội dung.');
-  const parsed = JSON.parse(responseText.replace(/^```(?:json)?\s*|\s*```$/gi, '').trim());
-  const rows = Array.isArray(parsed) ? parsed : parsed?.rows;
-  const checked = validateTKBGrid(rows);
-  if (!checked.valid) throw new Error(checked.error);
-  const warnings = Array.isArray(parsed?.warnings)
-    ? parsed.warnings.filter(v => typeof v === 'string').slice(0, 25) : [];
-  const filled = checked.grid.reduce((count, row) => count + row.cols.filter(Boolean).length, 0);
-  if (filled === 0) throw new Error('AI không đọc được môn học nào trong ảnh.');
-  if (filled < 8) throw new Error('Chỉ nhận diện được ' + filled + ' ô môn học; ảnh quá thiếu dữ liệu để tự điền TKB.');
-  return { grid: checked.grid, warnings, filled };
-}
-
-async function fetchGeminiJson(url, options, timeoutMs) {
-  const controller = new AbortController();
-  const timer = setTimeout(() => controller.abort(), timeoutMs);
-  try {
-    const response = await fetch(url, { ...options, signal: controller.signal });
-    const data = await response.json().catch(() => ({}));
-    if (!response.ok) {
-      const error = new Error(data?.error?.message || `Gemini HTTP ${response.status}`);
-      error.status = response.status;
-      throw error;
-    }
-    return data;
-  } finally {
-    clearTimeout(timer);
-  }
-}
-
-export async function scanTKBImageWithAI(base64DataUrl, mimeType, authToken) {
-  try {
-    enforceRole(authToken, 'HOC_TAP');
-    const apiKey = process.env.GEMINI_API_KEY;
-    if (!apiKey) return { success: false, fallbackLocal: false, message: 'Thiếu GEMINI_API_KEY trên Vercel.' };
-    if (typeof base64DataUrl !== 'string') {
-      return { success: false, fallbackLocal: false, message: 'Ảnh đầu vào không hợp lệ.' };
-    }
-    const match = /^data:(image\/(?:jpeg|png|webp));base64,(.+)$/is.exec(base64DataUrl.trim());
-    const imageMime = (match?.[1] || mimeType || '').toLowerCase();
-    if (!TKB_MIME.has(imageMime)) {
-      return { success: false, fallbackLocal: false, message: 'Chỉ hỗ trợ ảnh JPEG, PNG hoặc WebP.' };
-    }
-    const base64Data = (match ? match[2] : base64DataUrl).replace(/\s/g, '');
-    if (!base64Data || base64Data.length % 4 !== 0 ||
-        !/^[A-Za-z0-9+/]*={0,2}$/.test(base64Data)) {
-      return { success: false, fallbackLocal: false, message: 'Dữ liệu ảnh base64 bị lỗi.' };
-    }
-    const imageBuffer = Buffer.from(base64Data, 'base64');
-    if (!imageBuffer.length || imageBuffer.length > 8 * 1024 * 1024) {
-      return { success: false, fallbackLocal: false, message: 'Ảnh rỗng hoặc vượt quá 8 MB. Hãy nén/cắt ảnh.' };
-    }
-    const isJpeg = imageBuffer[0] === 0xff && imageBuffer[1] === 0xd8;
-    const isPng = imageBuffer.subarray(0, 8).equals(Buffer.from([137,80,78,71,13,10,26,10]));
-    const isWebp = imageBuffer.toString('ascii', 0, 4) === 'RIFF' && imageBuffer.toString('ascii', 8, 12) === 'WEBP';
-    if (!((imageMime === 'image/jpeg' && isJpeg) ||
-          (imageMime === 'image/png' && isPng) ||
-          (imageMime === 'image/webp' && isWebp))) {
-      return { success: false, fallbackLocal: false, message: 'Định dạng ảnh không khớp với nội dung file.' };
-    }
-
-    const prompt = `Hãy trích xuất chính xác THỜI KHÓA BIỂU trong ảnh trường phổ thông Việt Nam.
-Đầu tiên xác định tiêu đề THỨ, phần BUỔI SÁNG/BUỔI CHIỀU và số TIẾT ghi ở đầu mỗi hàng.
-Đừng suy luận thứ chỉ theo vị trí cột nếu ảnh có cột Tiết, Buổi, STT, Giáo viên hoặc phòng học.
-Đọc lần lượt từng giao điểm của ngày và tiết. Giữ đúng các môn kể cả có tiết trùng nhau.
-Ngày theo thứ tự: Thứ 2, Thứ 3, Thứ 4, Thứ 5, Thứ 6, Thứ 7, Chủ nhật.
-Buổi sáng tiết 1-5: S1-S5; buổi chiều tiết 1-4: C1-C4.
-Nếu bảng có tiết 5 buổi chiều thì bỏ qua vì giao diện ứng dụng chỉ hỗ trợ C1-C4.
-Nếu không có cột Chủ nhật hãy điền chuỗi rỗng cho ngày này.
-Nếu ô thật sự trống thì trả chuỗi rỗng; nếu mờ/không đọc được cũng trả chuỗi rỗng VÀ thêm cảnh báo nêu rõ tiết/ngày.
-Không tự điền các môn theo thói quen, không bịa môn và không nhầm tiêu đề/giáo viên/phòng học thành môn.
-Giữ nguyên tên môn/cụm từ đã đọc; server sẽ chuẩn hóa tên môn phổ biến.
-Chỉ trả JSON có trường rows và warnings. rows BẮT BUỘC chứa chính xác 9 phần tử, mỗi phần tử có id và cols gồm đúng 7 chuỗi.
-IDs: S1,S2,S3,S4,S5,C1,C2,C3,C4. warnings là mảng chuỗi mô tả những nơi không chắc chắn hoặc cột/buổi bị thiếu.`;
-
-    const schema = {
-      type: 'OBJECT', properties: {
-        rows: { type: 'ARRAY', items: { type: 'OBJECT', properties: {
-          id: { type: 'STRING' },
-          cols: { type: 'ARRAY', items: { type: 'STRING' } }
-        }, required: ['id','cols'] } },
-        warnings: { type: 'ARRAY', items: { type: 'STRING' } }
-      }, required: ['rows','warnings']
-    };
-    const payload = {
-      contents: [{ parts: [{ text: prompt }, { inline_data: { mime_type: imageMime, data: base64Data } }] }],
-      generationConfig: { temperature: 0, responseMimeType: 'application/json', responseSchema: schema }
-    };
-
-    // Lấy các model thực sự có thể gọi; tránh tự thử hàng loạt model preview.
-    let modelNames = [];
-    try {
-      const modelsData = await fetchGeminiJson('https://generativelanguage.googleapis.com/v1beta/models?pageSize=1000',
-        { headers: { 'x-goog-api-key': apiKey } }, 6500);
-      modelNames = (modelsData.models || [])
-        .filter(m => (m.supportedGenerationMethods || []).includes('generateContent'))
-        .map(m => String(m.name || '').replace(/^models\//, ''))
-        .filter(name => /^gemini-/.test(name) && !/image|tts|audio|embedding|live/i.test(name));
-    } catch (e) { /* fallback model dưới đây */ }
-    const preferred = [process.env.GEMINI_TKB_MODEL, 'gemini-2.5-flash', 'gemini-2.5-pro']
-      .filter(Boolean);
-    const usable = modelNames.length
-      ? [...preferred.filter(name => modelNames.includes(name)), ...modelNames.filter(name => /flash|pro/i.test(name))]
-      : preferred;
-    const candidates = [...new Set(usable)].slice(0, 2);
-    let lastError = 'Chưa tìm được model Gemini phù hợp.';
-    for (const model of candidates) {
-      try {
-        const data = await fetchGeminiJson(
-          `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent`,
-          { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-goog-api-key': apiKey }, body: JSON.stringify(payload) },
-          24000
-        );
-        const parsed = parseAIResponse(data);
-        return {
-          success: true, grid: parsed.grid, warnings: parsed.warnings,
-          needsReview: parsed.warnings.length > 0,
-          model, message: parsed.warnings.length ? 'Đã nhận diện, cần kiểm tra các ô được cảnh báo.' : 'Đã nhận diện. Hãy rà soát bảng trước khi lưu.'
-        };
-      } catch (e) {
-        lastError = e.name === 'AbortError' ? `Model ${model} xử lý quá lâu.` : e.message;
-        // Không tiếp tục khi lỗi thuộc về khóa API, quyền hoặc quota.
-        if ([400,401,403,429].includes(e.status)) break;
-      }
-    }
-    return { success: false, fallbackLocal: false, message: `Không thể đọc TKB: ${lastError}. Dữ liệu cũ được giữ nguyên.` };
-  } catch (err) {
-    return { success: false, fallbackLocal: false, message: err.message };
-  }
 }
